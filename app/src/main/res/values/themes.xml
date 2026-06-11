@@ -1,0 +1,9 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base theme for a Compose-only app: no XML ActionBar, no Material XML
+         theme dependency. The actual colors come from the Compose
+         EmakRtcPhoneTheme; this only sets the window chrome. -->
+    <style name="Theme.EmakRTCPhone" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/purple_700</item>
+        <item name="android:windowBackground">@color/white</item>
+    </style>
+</resources>
