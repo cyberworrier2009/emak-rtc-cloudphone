@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,6 +54,7 @@ import com.emaktalk.emakrtcphone.ui.theme.CallGreen
 @Composable
 fun DialerScreen(
     onOpenAccount: () -> Unit,
+    onLogout: () -> Unit,
     viewModel: DialerViewModel = viewModel()
 ) {
     val number by viewModel.number.collectAsState()
@@ -100,6 +102,12 @@ fun DialerScreen(
                     RegistrationBadge(registration)
                     IconButton(onClick = onOpenAccount) {
                         Icon(Icons.Filled.Settings, contentDescription = "SIP account")
+                    }
+                    IconButton(onClick = onLogout) {
+                        Icon(
+                            Icons.Filled.Logout,
+                            contentDescription = stringResource(R.string.logout)
+                        )
                     }
                 }
             )

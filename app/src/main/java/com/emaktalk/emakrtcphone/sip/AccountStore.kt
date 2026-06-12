@@ -6,8 +6,16 @@ import android.content.Context
 data class SavedAccount(
     val username: String,
     val password: String,
+    /** SIP domain used in the Verto login id (`username@domain`). */
     val domain: String,
-    val transport: VertoTransport
+    val transport: VertoTransport,
+    /**
+     * Host the Verto WebSocket connects to. Often the same as [domain], but the
+     * SIP domain (an `accountcode`) and the signaling host can differ — so it is
+     * stored separately. Defaults to [domain] for accounts saved before this
+     * field existed.
+     */
+    val host: String = domain
 )
 
 /**
@@ -31,6 +39,7 @@ class AccountStore(context: Context) {
             .putString(KEY_PASSWORD, account.password)
             .putString(KEY_DOMAIN, account.domain)
             .putString(KEY_TRANSPORT, account.transport.name)
+            .putString(KEY_HOST, account.host)
             .apply()
     }
 
@@ -41,7 +50,8 @@ class AccountStore(context: Context) {
         val transport = runCatching {
             VertoTransport.valueOf(prefs.getString(KEY_TRANSPORT, VertoTransport.WSS.name)!!)
         }.getOrDefault(VertoTransport.WSS)
-        return SavedAccount(username, password, domain, transport)
+        val host = prefs.getString(KEY_HOST, domain).orEmpty().ifBlank { domain }
+        return SavedAccount(username, password, domain, transport, host)
     }
 
     fun clear() {
@@ -54,5 +64,6 @@ class AccountStore(context: Context) {
         const val KEY_PASSWORD = "password"
         const val KEY_DOMAIN = "domain"
         const val KEY_TRANSPORT = "transport"
+        const val KEY_HOST = "host"
     }
 }

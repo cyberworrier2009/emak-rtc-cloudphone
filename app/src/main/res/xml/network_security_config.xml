@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The auth backend is served over plain HTTP (http://alpha.emaktech.com).
+  Android blocks cleartext traffic by default on API 28+, so we opt it back in
+  for this one host only — all other domains keep the secure default. Move the
+  backend to HTTPS and drop this exception for production.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">alpha.emaktech.com</domain>
+    </domain-config>
+</network-security-config>

@@ -161,23 +161,28 @@ object SipCoreManager {
 
     /**
      * "Registers" with FreeSWITCH by opening the Verto WebSocket and logging in.
-     * [domain] is the FreeSWITCH host; it may include an explicit `:port` or a
-     * full `ws(s)://host:port` URL, otherwise the default verto port for the
+     * [domain] is the SIP domain used in the login id (`username@domain`).
+     * [host] is the server the Verto WebSocket connects to; it defaults to
+     * [domain] but can differ (the SIP domain may be an `accountcode` while
+     * signaling lives on a separate host). It may include an explicit `:port` or
+     * a full `ws(s)://host:port` URL, otherwise the default verto port for the
      * chosen [transport] is used.
      */
     fun register(
         username: String,
         password: String,
         domain: String,
-        transport: VertoTransport = VertoTransport.WSS
+        transport: VertoTransport = VertoTransport.WSS,
+        host: String = domain
     ) {
         val cleanUser = username.trim()
         val cleanDomain = domain.trim()
-        val wsUrl = buildWsUrl(cleanDomain, transport)
+        val cleanHost = host.trim().ifBlank { cleanDomain }
+        val wsUrl = buildWsUrl(cleanHost, transport)
         val reg = PendingRegistration(cleanUser, password, cleanDomain, transport, wsUrl)
         pendingRegistration = reg
         // Persist so the user stays signed in across app restarts / reboots.
-        accountStore.save(SavedAccount(cleanUser, password, cleanDomain, transport))
+        accountStore.save(SavedAccount(cleanUser, password, cleanDomain, transport, cleanHost))
         // Explicit user action: always (re)connect, replacing any prior session.
         applyRegistration(reg, force = true)
     }
@@ -191,7 +196,7 @@ object SipCoreManager {
         if (pendingRegistration != null) return
         val saved = accountStore.load() ?: return
         Log.i(TAG, "Restoring saved Verto session for ${saved.username}")
-        register(saved.username, saved.password, saved.domain, saved.transport)
+        register(saved.username, saved.password, saved.domain, saved.transport, saved.host)
     }
 
     /**
