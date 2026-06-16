@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.emaktalk.emakrtcphone.ui.theme.DialerMuted
+import com.emaktalk.emakrtcphone.ui.theme.DialerOnSurface
 
 /** A single dialpad key (the primary digit plus the letters underneath it). */
 private data class DialKey(val digit: Char, val letters: String)
@@ -54,7 +54,7 @@ fun DialPad(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         DIAL_KEYS.chunked(3).forEach { rowKeys ->
             Row(
@@ -84,39 +84,38 @@ private fun DialButton(
     onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier
-                .aspectRatio(1f)
-                .clip(CircleShape)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                )
+    // Borderless keys: just the digit and letters floating on the dark canvas,
+    // with a circular ripple bound to the touch target.
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(CircleShape)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
+            Text(
+                text = key.digit.toString(),
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Normal,
+                color = DialerOnSurface,
+                textAlign = TextAlign.Center
+            )
+            if (key.letters.isNotEmpty()) {
                 Text(
-                    text = key.digit.toString(),
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
+                    text = key.letters,
+                    fontSize = 10.sp,
+                    letterSpacing = 2.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = DialerMuted
                 )
-                if (key.letters.isNotEmpty()) {
-                    Text(
-                        text = key.letters,
-                        fontSize = 10.sp,
-                        letterSpacing = 2.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
     }

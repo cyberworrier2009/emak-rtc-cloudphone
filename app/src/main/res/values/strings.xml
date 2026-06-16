@@ -10,10 +10,20 @@
     <string name="logout">Log out</string>
 
     <!-- Dialer -->
-    <string name="dialer_title">Keypad</string>
+    <string name="dialer_title">Dial</string>
+    <string name="dialer_subtitle">Internal extension or any number</string>
     <string name="dialer_hint">Enter number</string>
+    <string name="search">Search</string>
+    <string name="add_contact">Add contact</string>
     <string name="call">Call</string>
     <string name="delete">Delete</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_dial">Dial</string>
+    <string name="nav_recents">Recents</string>
+    <string name="nav_people">People</string>
+    <string name="nav_voicemail">Voicemail</string>
+    <string name="nav_settings">Settings</string>
 
     <!-- Account -->
     <string name="account_title">Verto Account</string>
