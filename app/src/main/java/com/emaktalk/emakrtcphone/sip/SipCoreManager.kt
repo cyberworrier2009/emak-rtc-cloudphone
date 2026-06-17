@@ -8,6 +8,7 @@ import android.os.Looper
 import android.util.Log
 import com.emaktalk.emakrtcphone.audio.AudioRoute
 import com.emaktalk.emakrtcphone.audio.CallAudioManager
+import com.emaktalk.emakrtcphone.auth.AuthManager
 import com.emaktalk.emakrtcphone.audio.MediaButtonHandle
 import com.emaktalk.emakrtcphone.network.NetworkMonitor
 import com.emaktalk.emakrtcphone.network.NetworkSnapshot
@@ -73,6 +74,16 @@ object SipCoreManager {
     private var callDisplayName = ""
     private var callRemoteUri = ""
     private var currentState = CallState.Idle
+
+    // ----- TURN fallback bookkeeping ----------------------------------------
+    // A call first tries a simple, direct connection (STUN-only — see
+    // WebRtcEngine.defaultIceServers). Only if that media path FAILS do we fetch
+    // Cloudflare TURN servers and retry once over a relay. These hold what the
+    // retry needs to rebuild the call, and guard against retrying more than once.
+    private var turnFallbackTried = false
+    private var dialedDestination = ""
+    private var dialedCallerId = ""
+    private var incomingOfferForRetry: String? = null
 
     private var muted = false
     private var phase: ConnectionPhase = ConnectionPhase.Healthy
@@ -247,7 +258,7 @@ object SipCoreManager {
         if (number.isEmpty()) return
         _callError.value = null
 
-        if (session != null) {
+        if (callId != null || session != null) {
             _callError.value = "Already in a call"
             return
         }
@@ -258,6 +269,7 @@ object SipCoreManager {
 
         val reg = pendingRegistration
         val destination = normalizeDestination(number)
+        val callerId = reg?.username ?: "anonymous"
         val id = UUID.randomUUID().toString()
         callId = id
         callIsOutgoing = true
@@ -265,14 +277,20 @@ object SipCoreManager {
         muted = false
         callDisplayName = destination
         callRemoteUri = if (reg != null) "sip:$destination@${reg.domain}" else destination
-
-        val newSession = WebRtcEngine.createSession(id, webRtcEvents)
-        session = newSession
+        // Remember what the TURN-fallback retry would need to rebuild this call.
+        dialedDestination = destination
+        dialedCallerId = callerId
 
         // Publish the in-call screen immediately (optimistic, like the reference).
         changeState(CallState.OutgoingInit)
 
         scope.launch {
+            // First attempt is the simple, direct path: STUN-only, no TURN relay
+            // allocated. We only fetch/use TURN if this connection FAILS (see the
+            // FAILED branch in webRtcEvents).
+            val newSession = WebRtcEngine.createSession(id, WebRtcEngine.defaultIceServers, webRtcEvents)
+            session = newSession
+
             val offer = runCatching { newSession.createOffer() }.getOrElse {
                 Log.w(TAG, "createOffer failed", it)
                 _callError.value = "Couldn't start the call (media setup failed)"
@@ -280,7 +298,6 @@ object SipCoreManager {
                 changeState(CallState.Released)
                 return@launch
             }
-            val callerId = reg?.username ?: "anonymous"
             verto.invite(id, destination, callerId, offer)
             changeState(CallState.OutgoingProgress)
         }
@@ -289,8 +306,11 @@ object SipCoreManager {
     fun acceptCall() {
         val id = callId ?: return
         val offer = pendingIncomingOffer ?: return
-        val s = session ?: return
         scope.launch {
+            // Simple/direct path first (STUN-only). TURN is fetched only on a
+            // failed media path, where retryWithTurn() rebuilds the answer.
+            val s = WebRtcEngine.createSession(id, WebRtcEngine.defaultIceServers, webRtcEvents)
+            session = s
             val answer = runCatching { s.createAnswer(offer) }.getOrElse {
                 Log.w(TAG, "createAnswer failed", it)
                 terminateCall()
@@ -299,6 +319,62 @@ object SipCoreManager {
             verto.answer(id, answer)
             pendingIncomingOffer = null
             changeState(CallState.Connected)
+        }
+    }
+
+    /**
+     * Fallback when the simple/direct media path fails: fetch Cloudflare TURN
+     * servers and retry the call once over a relay. For an outgoing call this
+     * re-INVITEs the destination on a fresh call id; for an incoming call it
+     * rebuilds and re-sends the answer (best-effort — FreeSWITCH must accept the
+     * renegotiation). Guarded by [turnFallbackTried] so it runs at most once.
+     */
+    private fun retryWithTurn() {
+        val failedId = callId ?: return
+        val outgoing = callIsOutgoing
+        val destination = dialedDestination
+        val callerId = dialedCallerId
+        val offer = incomingOfferForRetry
+
+        Log.w(TAG, "Direct media path failed; retrying over TURN relay (outgoing=$outgoing)")
+        phase = ConnectionPhase.Reconnecting
+        _callState.value = _callState.value?.copy(connectionPhase = phase)
+
+        scope.launch {
+            val iceServers = WebRtcEngine.fetchTurnIceServers(AuthManager.userId, AuthManager.accessToken)
+            if (callId != failedId || currentState.isTerminated) return@launch // call ended meanwhile
+
+            // Drop the failed media; for outgoing also tell FreeSWITCH to release
+            // the dead leg before we re-INVITE on a new id.
+            session?.close()
+            mediaConnected = false
+            remoteAnswerApplied = false
+
+            if (outgoing) {
+                verto.bye(failedId)
+                val retryId = UUID.randomUUID().toString()
+                callId = retryId
+                val s = WebRtcEngine.createSession(retryId, iceServers, webRtcEvents)
+                session = s
+                val newOffer = runCatching { s.createOffer() }.getOrElse {
+                    Log.w(TAG, "TURN retry createOffer failed", it)
+                    terminateCall()
+                    return@launch
+                }
+                verto.invite(retryId, destination, callerId, newOffer)
+            } else {
+                if (offer == null) {
+                    Log.w(TAG, "No stored incoming offer; cannot retry with TURN")
+                    return@launch
+                }
+                val s = WebRtcEngine.createSession(failedId, iceServers, webRtcEvents)
+                session = s
+                val newAnswer = runCatching { s.createAnswer(offer) }.getOrElse {
+                    Log.w(TAG, "TURN retry createAnswer failed", it)
+                    return@launch
+                }
+                verto.answer(failedId, newAnswer)
+            }
         }
     }
 
@@ -394,6 +470,8 @@ object SipCoreManager {
         override fun onLoginSuccess() {
             _registrationMessage.value = ""
             _registrationState.value = RegistrationState.Ok
+            // No TURN pre-warm: calls start on the simple/direct path and only
+            // fetch TURN if that connection fails (see retryWithTurn).
         }
 
         override fun onLoginFailed(reason: String) {
@@ -423,18 +501,21 @@ object SipCoreManager {
             sdpOffer: String
         ) {
             // Reject a second concurrent call.
-            if (session != null) {
+            if (this@SipCoreManager.callId != null || session != null) {
                 verto.bye(callId, "USER_BUSY")
                 return
             }
             this@SipCoreManager.callId = callId
             pendingIncomingOffer = sdpOffer
+            // Keep the offer so a TURN-fallback retry can rebuild the answer.
+            incomingOfferForRetry = sdpOffer
             callIsOutgoing = false
             remoteAnswerApplied = false
             muted = false
             callDisplayName = callerName.ifBlank { callerNumber }
             callRemoteUri = callerNumber
-            session = WebRtcEngine.createSession(callId, webRtcEvents)
+            // The PeerConnection is built in acceptCall() on the simple/direct
+            // path — so a declined call never spins up media needlessly.
             changeState(CallState.IncomingReceived)
         }
 
@@ -509,11 +590,18 @@ object SipCoreManager {
                         handler.postDelayed(disconnectGraceRunnable, DISCONNECT_GRACE_MS)
                     }
                     PeerConnection.PeerConnectionState.FAILED -> {
-                        // Hard failure — ICE could not (re)establish a media path.
+                        // Hard failure — ICE could not establish a media path. If
+                        // this was the simple/direct attempt, retry once over a TURN
+                        // relay; otherwise just surface the Reconnecting banner.
                         handler.removeCallbacks(disconnectGraceRunnable)
-                        phase = ConnectionPhase.Reconnecting
-                        _callState.value = _callState.value?.copy(connectionPhase = phase)
-                        Log.w(TAG, "PeerConnection FAILED; surfacing Reconnecting banner")
+                        if (!turnFallbackTried && !currentState.isTerminated) {
+                            turnFallbackTried = true
+                            retryWithTurn()
+                        } else {
+                            phase = ConnectionPhase.Reconnecting
+                            _callState.value = _callState.value?.copy(connectionPhase = phase)
+                            Log.w(TAG, "PeerConnection FAILED; no further TURN fallback")
+                        }
                     }
                     else -> Unit
                 }
@@ -533,6 +621,7 @@ object SipCoreManager {
                 quality = CallQualityStats.EMPTY
                 phase = ConnectionPhase.Healthy
                 mediaConnected = false
+                turnFallbackTried = false
                 consecutivePoorSamples = 0
                 consecutiveGoodSamples = 0
                 degradedByQuality = false
@@ -587,6 +676,7 @@ object SipCoreManager {
         session = null
         callId = null
         pendingIncomingOffer = null
+        incomingOfferForRetry = null
         remoteAnswerApplied = false
     }
 
