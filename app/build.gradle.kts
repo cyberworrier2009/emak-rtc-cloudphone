@@ -45,6 +45,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    testOptions {
+        unitTests {
+            // android.util.Log et al. are stubs that throw on the JVM; return
+            // defaults so local unit tests of pure logic don't blow up on logging.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -80,6 +87,9 @@ dependencies {
     implementation(libs.firebase.messaging.ktx)
 
     testImplementation(libs.junit)
+    // Android's org.json is a stub that throws on the JVM; pull a real impl so
+    // local unit tests can exercise JSON parsing (e.g. TurnServerApi).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

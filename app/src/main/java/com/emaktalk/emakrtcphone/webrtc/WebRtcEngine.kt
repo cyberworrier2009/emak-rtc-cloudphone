@@ -22,30 +22,52 @@ object WebRtcEngine {
     private lateinit var factory: PeerConnectionFactory
     private var initialized = false
 
-    /**
-     * ICE servers. FreeSWITCH (mod_rtc) is ICE-lite and typically reachable on
-     * a public address, but the client still benefits from a STUN server to
-     * discover its own server-reflexive candidate behind NAT.
-     *
-     * If calls connect on signaling but then show "Reconnecting" (ICE FAILED),
-     * the usual fix is a TURN server: when the phone is behind a symmetric NAT
-     * and can't reach FreeSWITCH's candidate directly, TURN relays the media.
-     * Fill in [TURN_URL] / [TURN_USER] / [TURN_PASSWORD] to enable it.
-     */
-    private const val TURN_URL = ""        // e.g. "turn:turn.example.com:3478"
-    private const val TURN_USER = ""
-    private const val TURN_PASSWORD = ""
+    private val turnApi = TurnServerApi()
 
-    val iceServers: List<PeerConnection.IceServer> = buildList {
-        add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
-        if (TURN_URL.isNotBlank()) {
-            add(
-                PeerConnection.IceServer.builder(TURN_URL)
-                    .setUsername(TURN_USER)
-                    .setPassword(TURN_PASSWORD)
-                    .createIceServer()
-            )
+    /**
+     * STUN-only servers used for the *first* (simple) call attempt. FreeSWITCH
+     * (mod_rtc) is ICE-lite and typically reachable on a public address, so on a
+     * simple network a STUN server is enough to discover our server-reflexive
+     * candidate and connect directly — no TURN relay is allocated.
+     *
+     * TURN is brought in only as a fallback when this direct path fails; see
+     * [fetchTurnIceServers] and the retry logic in
+     * [com.emaktalk.emakrtcphone.sip.SipCoreManager].
+     */
+    val defaultIceServers: List<PeerConnection.IceServer> = listOf(
+        PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer()
+    )
+
+    /**
+     * Fetches STUN+TURN servers from the backend for [userId] (fresh Cloudflare
+     * credentials each call). Used only on the fallback retry, after a direct
+     * connection has failed. Returns [defaultIceServers] if the user id is
+     * missing or the backend is unreachable, so the retry can still proceed.
+     */
+    suspend fun fetchTurnIceServers(
+        userId: String?,
+        accessToken: String?
+    ): List<PeerConnection.IceServer> {
+        if (userId.isNullOrBlank()) {
+            Log.w(TAG, "No user id for TURN request; falling back to STUN-only")
+            return defaultIceServers
         }
+        return turnApi.fetchIceServers(userId, accessToken)
+            .fold(
+                onSuccess = { servers ->
+                    if (servers.isNotEmpty()) {
+                        Log.i(TAG, "Fetched ${servers.size} ICE server entries from backend for TURN fallback")
+                        servers
+                    } else {
+                        Log.w(TAG, "Backend returned no ICE servers; falling back to STUN-only")
+                        defaultIceServers
+                    }
+                },
+                onFailure = {
+                    Log.w(TAG, "TURN fetch failed; falling back to STUN-only", it)
+                    defaultIceServers
+                }
+            )
     }
 
     fun initialize(context: Context) {
@@ -74,8 +96,16 @@ object WebRtcEngine {
         Log.i(TAG, "PeerConnectionFactory ready")
     }
 
-    /** Creates a new per-call session bound to a fresh [PeerConnection]. */
-    fun createSession(callId: String, observer: WebRtcSession.Events): WebRtcSession {
+    /**
+     * Creates a new per-call session bound to a fresh [PeerConnection] using the
+     * given [iceServers] — pass [defaultIceServers] for the simple/direct attempt
+     * or the result of [fetchTurnIceServers] for the TURN fallback.
+     */
+    fun createSession(
+        callId: String,
+        iceServers: List<PeerConnection.IceServer>,
+        observer: WebRtcSession.Events
+    ): WebRtcSession {
         check(initialized) { "WebRtcEngine.initialize() must be called first" }
         return WebRtcSession(callId, factory, iceServers, observer)
     }

@@ -86,6 +86,10 @@ object AuthManager {
     val accessToken: String?
         get() = if (::tokenStore.isInitialized) tokenStore.load()?.accessToken else null
 
+    /** The platform user id (for TURN credential requests), or null if signed out. */
+    val userId: String?
+        get() = accessToken?.let { TokenClaims.userId(it) }
+
     /**
      * Authenticates [username]/[password] against the backend and, on success,
      * persists the tokens and flips [state] to [State.LoggedIn]. Blank input is a

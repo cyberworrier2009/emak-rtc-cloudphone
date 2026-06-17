@@ -93,6 +93,11 @@ class WebRtcSession(
     init {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            // ALL (not RELAY): gather host + server-reflexive (STUN) + relay (TURN)
+            // candidates and let ICE pick by priority. Direct/STUN paths win when
+            // they work; the TURN relay is only used when no direct path can be
+            // established — i.e. TURN is the fallback, not the default route.
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
             // Gather all candidates up front; we send a full SDP (no trickle).
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
             // MAX_COMPAT, not MAX_BUNDLE: mod_verto's answer SDP does not echo an

@@ -38,6 +38,16 @@ object TokenClaims {
     }
 
     /**
+     * Resolves the platform user id from the access token's `sub` claim, used as
+     * the `user` parameter when requesting TURN credentials. Returns null if the
+     * token isn't a decodable JWT or carries no `sub`.
+     */
+    fun userId(accessToken: String): String? {
+        val payload = decodePayload(accessToken) ?: return null
+        return payload.optString("sub").takeIf { it.isNotBlank() }
+    }
+
+    /**
      * Extracts the first enabled extension from an access token, ready to feed
      * into the Verto registration. Returns null if the token carries no usable
      * extension.
