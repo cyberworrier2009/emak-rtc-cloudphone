@@ -1,6 +1,7 @@
 package com.emaktalk.emakrtcphone.webrtc
 
 import com.emaktalk.emakrtcphone.sip.CallQualityStats
+import com.emaktalk.emakrtcphone.sip.MediaPath
 import org.webrtc.RTCStatsReport
 
 /**
@@ -21,6 +22,9 @@ class CallStatsCalculator {
     private var prevPacketsLost = 0.0
     private var prevPacketsReceived = 0.0
     private var prevTimestampUs = 0.0
+    // Sticky so the indicator doesn't flicker to Unknown on a report that omits
+    // the candidate pair; once a path is known it stays until it actually changes.
+    private var lastMediaPath = MediaPath.Unknown
 
     fun consume(report: RTCStatsReport): CallQualityStats {
         var bytesReceived = 0.0
@@ -30,6 +34,11 @@ class CallStatsCalculator {
         var jitterSec = 0.0
         var rttSec = 0.0
         var timestampUs = 0.0
+
+        // For the direct-vs-TURN indicator: candidate type by id + the pairs.
+        val candidateTypeById = HashMap<String, String>()
+        val candidatePairs = ArrayList<Pair<String, Map<String, Any>>>()
+        var selectedPairId: String? = null
 
         for (stats in report.statsMap.values) {
             val m = stats.members
@@ -53,9 +62,18 @@ class CallStatsCalculator {
                     if (m["state"]?.toString() == "succeeded" || num(m["currentRoundTripTime"]) > 0) {
                         if (rttSec <= 0) rttSec = num(m["currentRoundTripTime"])
                     }
+                    candidatePairs.add(stats.id to m)
+                }
+                "transport" -> {
+                    m["selectedCandidatePairId"]?.toString()?.let { selectedPairId = it }
+                }
+                "local-candidate", "remote-candidate" -> {
+                    m["candidateType"]?.toString()?.let { candidateTypeById[stats.id] = it }
                 }
             }
         }
+
+        lastMediaPath = resolveMediaPath(candidateTypeById, candidatePairs, selectedPairId) ?: lastMediaPath
 
         val dtSec = if (prevTimestampUs > 0 && timestampUs > prevTimestampUs) {
             (timestampUs - prevTimestampUs) / 1_000_000.0
@@ -87,8 +105,36 @@ class CallStatsCalculator {
             uploadKbps = upKbps.toFloat(),
             jitterMs = jitterMs.toFloat(),
             roundTripMs = rttMs.toFloat(),
-            lossRate = lossPct.toFloat()
+            lossRate = lossPct.toFloat(),
+            mediaPath = lastMediaPath
         )
+    }
+
+    /**
+     * Resolves the active media path from the nominated ICE candidate pair: if
+     * either end's selected candidate is a TURN `relay` candidate, media is
+     * relayed; host/srflx means direct. Returns null when no pair is resolvable
+     * yet (caller keeps the last known value).
+     */
+    private fun resolveMediaPath(
+        candidateTypeById: Map<String, String>,
+        candidatePairs: List<Pair<String, Map<String, Any>>>,
+        selectedPairId: String?
+    ): MediaPath? {
+        val pair = candidatePairs.firstOrNull { it.first == selectedPairId }
+            ?: candidatePairs.firstOrNull {
+                it.second["nominated"]?.toString() == "true" && it.second["state"]?.toString() == "succeeded"
+            }
+            ?: candidatePairs.firstOrNull { it.second["state"]?.toString() == "succeeded" }
+            ?: return null
+
+        val localType = candidateTypeById[pair.second["localCandidateId"]?.toString()]
+        val remoteType = candidateTypeById[pair.second["remoteCandidateId"]?.toString()]
+        return when {
+            localType == null && remoteType == null -> null
+            localType == "relay" || remoteType == "relay" -> MediaPath.Relay
+            else -> MediaPath.Direct
+        }
     }
 
     /** Simplified E-model: latency + loss → R factor → MOS (1.0–5.0). */

@@ -12,10 +12,12 @@ import com.emaktalk.emakrtcphone.sip.SipCoreManager
 import com.emaktalk.emakrtcphone.ui.account.AccountScreen
 import com.emaktalk.emakrtcphone.ui.call.InCallScreen
 import com.emaktalk.emakrtcphone.ui.dialer.DialerScreen
+import com.emaktalk.emakrtcphone.ui.login.ExtensionSelectScreen
 import com.emaktalk.emakrtcphone.ui.login.LoginScreen
 
 private object Routes {
     const val LOGIN = "login"
+    const val EXTENSION_SELECT = "extension_select"
     const val DIALER = "dialer"
     const val ACCOUNT = "account"
     const val IN_CALL = "incall"
@@ -36,8 +38,14 @@ fun EmakRtcPhoneApp() {
     // Move between the login gate and the app whenever auth state changes.
     LaunchedEffect(authState) {
         when (authState) {
+            AuthManager.State.SelectingExtension -> {
+                navController.navigate(Routes.EXTENSION_SELECT) {
+                    launchSingleTop = true
+                }
+            }
             AuthManager.State.LoggedIn -> {
                 navController.navigate(Routes.DIALER) {
+                    // Clear the login + extension-picker so Back can't return to them.
                     popUpTo(Routes.LOGIN) { inclusive = true }
                     launchSingleTop = true
                 }
@@ -68,6 +76,9 @@ fun EmakRtcPhoneApp() {
     NavHost(navController = navController, startDestination = startDestination) {
         composable(Routes.LOGIN) {
             LoginScreen()
+        }
+        composable(Routes.EXTENSION_SELECT) {
+            ExtensionSelectScreen()
         }
         composable(Routes.DIALER) {
             DialerScreen(

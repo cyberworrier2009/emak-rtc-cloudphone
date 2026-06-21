@@ -9,6 +9,11 @@
     <string name="login_action">Sign in</string>
     <string name="logout">Log out</string>
 
+    <!-- Extension selection -->
+    <string name="extension_select_title">Choose an extension</string>
+    <string name="extension_select_subtitle">This account has multiple extensions. Pick the one to sign in with.</string>
+    <string name="extension_label">Extension %1$s</string>
+
     <!-- Dialer -->
     <string name="dialer_title">Dial</string>
     <string name="dialer_subtitle">Internal extension or any number</string>

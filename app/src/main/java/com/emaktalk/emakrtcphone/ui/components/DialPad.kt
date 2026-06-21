@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,7 +51,9 @@ private val DIAL_KEYS = listOf(
 fun DialPad(
     onKeyClick: (Char) -> Unit,
     onZeroLongPress: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    digitColor: Color = DialerOnSurface,
+    letterColor: Color = DialerMuted
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -66,6 +69,8 @@ fun DialPad(
                         key = key,
                         onClick = { onKeyClick(key.digit) },
                         onLongClick = if (key.digit == '0') onZeroLongPress else null,
+                        digitColor = digitColor,
+                        letterColor = letterColor,
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 8.dp)
@@ -82,6 +87,8 @@ private fun DialButton(
     key: DialKey,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
+    digitColor: Color,
+    letterColor: Color,
     modifier: Modifier = Modifier
 ) {
     // Borderless keys: just the digit and letters floating on the dark canvas,
@@ -105,7 +112,7 @@ private fun DialButton(
                 text = key.digit.toString(),
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Normal,
-                color = DialerOnSurface,
+                color = digitColor,
                 textAlign = TextAlign.Center
             )
             if (key.letters.isNotEmpty()) {
@@ -114,7 +121,7 @@ private fun DialButton(
                     fontSize = 10.sp,
                     letterSpacing = 2.sp,
                     fontWeight = FontWeight.Medium,
-                    color = DialerMuted
+                    color = letterColor
                 )
             }
         }

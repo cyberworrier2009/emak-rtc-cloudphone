@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
  */
 class AuthApi(
     private val loginUrl: String = DEFAULT_LOGIN_URL,
+    private val refreshUrl: String = DEFAULT_REFRESH_URL,
     private val client: OkHttpClient = defaultClient
 ) {
 
@@ -42,6 +43,38 @@ class AuthApi(
 
                 val request = Request.Builder()
                     .url(loginUrl)
+                    .post(payload)
+                    .header("Accept", "application/json")
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw IOException(errorMessage(body, response.code))
+                    }
+                    parseTokens(body)
+                }
+            }
+        }
+
+    /**
+     * Exchanges a still-valid [refreshToken] for a fresh access token (and a
+     * rotated refresh token — the backend returns a new one each time, so the
+     * caller must persist what comes back). Same response shape as [login].
+     *
+     * @return [Result.success] with the new [AuthTokens] on HTTP 2xx, or
+     *   [Result.failure] (e.g. the refresh token itself expired → re-login).
+     */
+    suspend fun refresh(refreshToken: String): Result<AuthTokens> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val payload = JSONObject()
+                    .put("refresh_token", refreshToken)
+                    .toString()
+                    .toRequestBody(JSON)
+
+                val request = Request.Builder()
+                    .url(refreshUrl)
                     .post(payload)
                     .header("Accept", "application/json")
                     .build()
@@ -94,6 +127,7 @@ class AuthApi(
 
     companion object {
         const val DEFAULT_LOGIN_URL = "http://alpha.emaktech.com/api/v1/auth/login"
+        const val DEFAULT_REFRESH_URL = "http://alpha.emaktech.com/api/v1/auth/refresh"
 
         private val JSON = "application/json; charset=utf-8".toMediaType()
 

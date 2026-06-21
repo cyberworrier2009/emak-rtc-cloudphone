@@ -9,13 +9,27 @@ package com.emaktalk.emakrtcphone.sip
  * E-model in [com.emaktalk.emakrtcphone.webrtc.CallStatsCalculator]. The scale is
  * the same: 0–5, where <2.0 means audio is likely garbled and 3.5+ is "sounds fine".
  */
+/** How the call's media is actually flowing, from the selected ICE candidate pair. */
+enum class MediaPath {
+    /** Not yet known (no nominated candidate pair reported). */
+    Unknown,
+
+    /** Direct/STUN path — host or server-reflexive candidate (the simple case). */
+    Direct,
+
+    /** Relayed through a TURN server (the fallback when direct couldn't connect). */
+    Relay
+}
+
 data class CallQualityStats(
     val mos: Float,
     val downloadKbps: Float,
     val uploadKbps: Float,
     val jitterMs: Float,
     val roundTripMs: Float,
-    val lossRate: Float
+    val lossRate: Float,
+    /** Whether media is going direct or via TURN relay (selected candidate pair). */
+    val mediaPath: MediaPath = MediaPath.Unknown
 ) {
     /** Five buckets so we can drive a signal-bars indicator without flicker. */
     val bars: Int get() = when {
@@ -28,6 +42,6 @@ data class CallQualityStats(
     }
 
     companion object {
-        val EMPTY = CallQualityStats(0f, 0f, 0f, 0f, 0f, 0f)
+        val EMPTY = CallQualityStats(0f, 0f, 0f, 0f, 0f, 0f, MediaPath.Unknown)
     }
 }

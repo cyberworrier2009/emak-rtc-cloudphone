@@ -42,6 +42,12 @@ object SipCoreManager {
 
     private const val TAG = "SipCoreManager"
 
+    // ⚠️ TEST ONLY — set back to false before shipping. When true, every call
+    // fetches TURN servers up front and forces media over the relay
+    // (iceTransportsType=RELAY), so the "Connected via TURN relay" path is
+    // exercised deterministically instead of only on a real direct-path failure.
+    private const val FORCE_RELAY_FOR_TEST = false
+
     private lateinit var appContext: Context
     private lateinit var audio: CallAudioManager
     private lateinit var networkMonitor: NetworkMonitor
@@ -84,6 +90,20 @@ object SipCoreManager {
     private var dialedDestination = ""
     private var dialedCallerId = ""
     private var incomingOfferForRetry: String? = null
+
+    // ----- Multi-call / conference bookkeeping ------------------------------
+    // The fields above describe the foreground (active) leg. When the user taps
+    // "Add Call", the active leg is parked here (held, server-side via
+    // verto.modify) while a second leg is dialed. Swap exchanges the two; Merge
+    // joins both into a FreeSWITCH mod_conference room.
+    private var heldSession: WebRtcSession? = null
+    private var heldCallId: String? = null
+    private var heldDisplayName = ""
+    private var heldRemoteUri = ""
+    private var heldIsOutgoing = false
+    private var onHold = false          // the active leg is held by the user
+    private var addingCall = false      // dialer overlay open to pick the 2nd party
+    private var isConferenceLeg = false // the active leg is the merged conference
 
     private var muted = false
     private var phase: ConnectionPhase = ConnectionPhase.Healthy
@@ -266,16 +286,29 @@ object SipCoreManager {
             _callError.value = "Register an account first"
             return
         }
+        beginOutgoing(number)
+    }
 
+    /**
+     * Sets up and dials an outgoing leg in the (free) active slot. Shared by
+     * [startCall] and [placeSecondCall] — the latter runs while another leg is
+     * parked on hold. Caller is responsible for guarding the active slot.
+     */
+    private fun beginOutgoing(
+        rawNumber: String,
+        displayName: String? = null,
+        conference: Boolean = false
+    ) {
         val reg = pendingRegistration
-        val destination = normalizeDestination(number)
+        val destination = normalizeDestination(rawNumber.trim())
         val callerId = reg?.username ?: "anonymous"
         val id = UUID.randomUUID().toString()
         callId = id
         callIsOutgoing = true
         remoteAnswerApplied = false
         muted = false
-        callDisplayName = destination
+        isConferenceLeg = conference
+        callDisplayName = displayName ?: destination
         callRemoteUri = if (reg != null) "sip:$destination@${reg.domain}" else destination
         // Remember what the TURN-fallback retry would need to rebuild this call.
         dialedDestination = destination
@@ -287,8 +320,16 @@ object SipCoreManager {
         scope.launch {
             // First attempt is the simple, direct path: STUN-only, no TURN relay
             // allocated. We only fetch/use TURN if this connection FAILS (see the
-            // FAILED branch in webRtcEvents).
-            val newSession = WebRtcEngine.createSession(id, WebRtcEngine.defaultIceServers, webRtcEvents)
+            // FAILED branch in webRtcEvents). The FORCE_RELAY_FOR_TEST hook seeds
+            // TURN from the start and forces the relay so the path can be tested.
+            val firstIceServers = if (FORCE_RELAY_FOR_TEST) {
+                fetchTurnServers()
+            } else {
+                WebRtcEngine.defaultIceServers
+            }
+            val newSession = WebRtcEngine.createSession(
+                id, firstIceServers, webRtcEvents, forceRelay = FORCE_RELAY_FOR_TEST
+            )
             session = newSession
 
             val offer = runCatching { newSession.createOffer() }.getOrElse {
@@ -308,8 +349,16 @@ object SipCoreManager {
         val offer = pendingIncomingOffer ?: return
         scope.launch {
             // Simple/direct path first (STUN-only). TURN is fetched only on a
-            // failed media path, where retryWithTurn() rebuilds the answer.
-            val s = WebRtcEngine.createSession(id, WebRtcEngine.defaultIceServers, webRtcEvents)
+            // failed media path, where retryWithTurn() rebuilds the answer. The
+            // FORCE_RELAY_FOR_TEST hook seeds TURN up front and forces the relay.
+            val firstIceServers = if (FORCE_RELAY_FOR_TEST) {
+                fetchTurnServers()
+            } else {
+                WebRtcEngine.defaultIceServers
+            }
+            val s = WebRtcEngine.createSession(
+                id, firstIceServers, webRtcEvents, forceRelay = FORCE_RELAY_FOR_TEST
+            )
             session = s
             val answer = runCatching { s.createAnswer(offer) }.getOrElse {
                 Log.w(TAG, "createAnswer failed", it)
@@ -329,6 +378,16 @@ object SipCoreManager {
      * rebuilds and re-sends the answer (best-effort — FreeSWITCH must accept the
      * renegotiation). Guarded by [turnFallbackTried] so it runs at most once.
      */
+    /**
+     * Fetches TURN ICE servers, first refreshing the backend access token if it
+     * has lapsed. The token is short-lived (~3h); without this the TURN request
+     * 401s once it expires and the relay fallback silently yields no servers.
+     */
+    private suspend fun fetchTurnServers(): List<PeerConnection.IceServer> {
+        AuthManager.refreshIfNeeded()
+        return WebRtcEngine.fetchTurnIceServers(AuthManager.userId, AuthManager.accessToken)
+    }
+
     private fun retryWithTurn() {
         val failedId = callId ?: return
         val outgoing = callIsOutgoing
@@ -341,7 +400,7 @@ object SipCoreManager {
         _callState.value = _callState.value?.copy(connectionPhase = phase)
 
         scope.launch {
-            val iceServers = WebRtcEngine.fetchTurnIceServers(AuthManager.userId, AuthManager.accessToken)
+            val iceServers = fetchTurnServers()
             if (callId != failedId || currentState.isTerminated) return@launch // call ended meanwhile
 
             // Drop the failed media; for outgoing also tell FreeSWITCH to release
@@ -381,6 +440,13 @@ object SipCoreManager {
     fun terminateCall() {
         val id = callId
         if (id != null) verto.bye(id)
+        // If a second leg is parked on hold, end only the active leg and promote
+        // the held leg back to the foreground; otherwise tear everything down.
+        if (heldCallId != null) {
+            session?.close()
+            promoteHeldLeg()
+            return
+        }
         cleanupCall()
         changeState(CallState.Released)
     }
@@ -388,6 +454,179 @@ object SipCoreManager {
     fun clearCallError() {
         _callError.value = null
     }
+
+    // region Multi-call / conference -----------------------------------------
+
+    /** Holds the active leg (server-side via verto.modify, plus local mute). */
+    fun holdCall() {
+        val id = callId ?: return
+        if (onHold) return
+        onHold = true
+        verto.modify(id, "hold")
+        session?.setHold(true)
+        _callState.value = _callState.value?.copy(isOnHold = true)
+    }
+
+    /** Resumes a held active leg and re-applies the user's mute state. */
+    fun resumeCall() {
+        val id = callId ?: return
+        if (!onHold) return
+        onHold = false
+        verto.modify(id, "unhold")
+        session?.setHold(false)
+        session?.setMuted(muted)
+        _callState.value = _callState.value?.copy(isOnHold = false)
+    }
+
+    /**
+     * "Add Call": parks the active leg on hold and opens the dialer to pick a
+     * second party. The parked leg keeps running server-side; [placeSecondCall]
+     * then dials the new party as the foreground leg.
+     */
+    fun addCall() {
+        val id = callId ?: return
+        if (heldCallId != null) return // already two legs
+
+        verto.modify(id, "hold")
+        session?.setHold(true)
+        // Park the active leg.
+        heldSession = session
+        heldCallId = id
+        heldDisplayName = callDisplayName
+        heldRemoteUri = callRemoteUri
+        heldIsOutgoing = callIsOutgoing
+        // Free the active slot and enter "adding" mode (dialer overlay).
+        session = null
+        callId = null
+        onHold = false
+        addingCall = true
+        publishAddingCall()
+    }
+
+    /** Cancels the Add-Call dialer and resumes the parked leg. */
+    fun cancelAddCall() {
+        if (!addingCall) return
+        addingCall = false
+        promoteHeldLeg()
+    }
+
+    /** Dials the second party (foreground leg) while the first stays held. */
+    fun placeSecondCall(rawNumber: String) {
+        if (!addingCall) return
+        val number = rawNumber.trim()
+        if (number.isEmpty()) return
+        addingCall = false
+        beginOutgoing(number)
+    }
+
+    /** Swaps the foreground and held legs (hold the active, resume the parked). */
+    fun swapCalls() {
+        val heldId = heldCallId ?: return
+        val activeId = callId
+
+        if (activeId != null) {
+            verto.modify(activeId, "hold")
+            session?.setHold(true)
+        }
+        verto.modify(heldId, "unhold")
+        heldSession?.setHold(false)
+
+        // Exchange active <-> held.
+        val s = session; val cid = callId; val name = callDisplayName
+        val uri = callRemoteUri; val out = callIsOutgoing
+        session = heldSession; callId = heldCallId; callDisplayName = heldDisplayName
+        callRemoteUri = heldRemoteUri; callIsOutgoing = heldIsOutgoing
+        heldSession = s; heldCallId = cid; heldDisplayName = name
+        heldRemoteUri = uri; heldIsOutgoing = out
+
+        onHold = false
+        session?.setMuted(muted)
+        currentState = CallState.StreamsRunning
+        _callState.value = snapshot(currentState)
+    }
+
+    /**
+     * Merges the two legs into a FreeSWITCH `mod_conference` room. mod_verto has
+     * no "merge" RPC, but it does support blind transfer of a bridged call
+     * (`verto.modify` action=transfer), and the 35xx range is a dynamic
+     * conference (probed live). So we transfer each remote party into the same
+     * room, then dial into it ourselves — server-mixed three-way audio.
+     *
+     * NOTE: needs end-to-end validation with two real answering participants;
+     * transfer only works on a *bridged* (answered) leg (else FreeSWITCH returns
+     * "call is not bridged").
+     */
+    fun mergeCalls() {
+        val activeId = callId ?: return
+        val heldId = heldCallId ?: return
+        val room = conferenceRoomNumber()
+        Log.i(TAG, "Merging legs $heldId + $activeId into conference room $room")
+
+        // Move both remote parties into the conference room.
+        verto.transfer(heldId, room)
+        verto.transfer(activeId, room)
+
+        // FreeSWITCH releases our (now-redirected) legs; drop them locally. Their
+        // later verto.bye won't match the new conference callId, so it's ignored.
+        heldSession?.close()
+        heldSession = null
+        heldCallId = null
+        heldDisplayName = ""
+        heldRemoteUri = ""
+        session?.close()
+        session = null
+        callId = null
+        onHold = false
+
+        // Join the room ourselves to complete the conference.
+        beginOutgoing(room, displayName = "Conference", conference = true)
+    }
+
+    /**
+     * Picks a dynamic conference room in the probed 35xx range. Derived from our
+     * extension so a given user reuses a stable room and two users are unlikely
+     * to collide; falls back to 3500.
+     */
+    private fun conferenceRoomNumber(): String {
+        val extDigits = (pendingRegistration?.username ?: "").filter { it.isDigit() }
+        val offset = extDigits.takeLast(2).toIntOrNull() ?: 0
+        return (3500 + offset % 100).toString()
+    }
+
+    /** Brings the parked (held) leg back to the foreground and resumes it. */
+    private fun promoteHeldLeg() {
+        val heldId = heldCallId
+        if (heldId == null) {
+            cleanupCall()
+            changeState(CallState.Released)
+            return
+        }
+        // Move held -> active.
+        session = heldSession
+        callId = heldCallId
+        callDisplayName = heldDisplayName
+        callRemoteUri = heldRemoteUri
+        callIsOutgoing = heldIsOutgoing
+        heldSession = null
+        heldCallId = null
+        heldDisplayName = ""
+        heldRemoteUri = ""
+
+        addingCall = false
+        onHold = false
+        verto.modify(heldId, "unhold")
+        session?.setHold(false)
+        session?.setMuted(muted)
+        currentState = CallState.StreamsRunning
+        _callState.value = snapshot(currentState)
+    }
+
+    /** Publishes the "adding a second call" state (dialer overlay + held chip). */
+    private fun publishAddingCall() {
+        _callState.value = snapshot(CallState.Connected)
+    }
+
+    // endregion
 
     fun toggleMute(): Boolean {
         muted = !muted
@@ -537,8 +776,27 @@ object SipCoreManager {
         }
 
         override fun onBye(callId: String, cause: String) {
+            // The parked (held) leg's remote hung up: drop just that leg and keep
+            // the foreground call going.
+            if (callId == heldCallId) {
+                Log.i(TAG, "Held leg remote hung up ($cause)")
+                heldSession?.close()
+                heldSession = null
+                heldCallId = null
+                heldDisplayName = ""
+                heldRemoteUri = ""
+                _callState.value = _callState.value?.copy(heldCallTitle = null, canMerge = false)
+                return
+            }
             if (callId != this@SipCoreManager.callId) return
             Log.i(TAG, "Remote hung up ($cause)")
+            // If a leg is parked, the foreground call ended but the held leg
+            // should survive and return to the foreground.
+            if (heldCallId != null) {
+                session?.close()
+                promoteHeldLeg()
+                return
+            }
             cleanupCall()
             changeState(CallState.Released)
         }
@@ -560,9 +818,12 @@ object SipCoreManager {
     // region WebRTC callbacks -------------------------------------------------
 
     private val webRtcEvents = object : WebRtcSession.Events {
-        override fun onConnectionState(state: PeerConnection.PeerConnectionState) {
+        override fun onConnectionState(callId: String, state: PeerConnection.PeerConnectionState) {
             handler.post {
                 if (session == null) return@post
+                // Only the foreground leg drives the call UI/state. A parked
+                // (held) leg's media is paused, so ignore its transitions here.
+                if (callId != this@SipCoreManager.callId) return@post
                 when (state) {
                     PeerConnection.PeerConnectionState.CONNECTED -> {
                         // Media is up. Clear any Reconnecting banner unconditionally
@@ -667,7 +928,12 @@ object SipCoreManager {
         availableRoutes = audio.availableRoutes.value,
         connectionPhase = phase,
         networkType = lastNetwork.type,
-        quality = quality
+        quality = quality,
+        isOnHold = onHold,
+        heldCallTitle = heldCallId?.let { heldDisplayName.ifBlank { heldRemoteUri } },
+        isAddingCall = addingCall,
+        canMerge = heldCallId != null && state.isConnected && !addingCall,
+        isConference = isConferenceLeg
     )
 
     /** Releases call media without sending signaling (caller handles state). */
@@ -678,6 +944,15 @@ object SipCoreManager {
         pendingIncomingOffer = null
         incomingOfferForRetry = null
         remoteAnswerApplied = false
+        // Tear down any parked leg too (full call teardown).
+        heldSession?.close()
+        heldSession = null
+        heldCallId = null
+        heldDisplayName = ""
+        heldRemoteUri = ""
+        onHold = false
+        addingCall = false
+        isConferenceLeg = false
     }
 
     private fun onStatsUpdated(stats: CallQualityStats) {
@@ -690,7 +965,8 @@ object SipCoreManager {
         Log.i(
             TAG,
             "media: up=${stats.uploadKbps.toInt()}kbps down=${stats.downloadKbps.toInt()}kbps " +
-                "loss=${stats.lossRate.toInt()}% rtt=${stats.roundTripMs.toInt()}ms mos=$mos"
+                "loss=${stats.lossRate.toInt()}% rtt=${stats.roundTripMs.toInt()}ms mos=$mos " +
+                "path=${stats.mediaPath}"
         )
 
         if (mos in 0.01f..MOS_FLOOR) {

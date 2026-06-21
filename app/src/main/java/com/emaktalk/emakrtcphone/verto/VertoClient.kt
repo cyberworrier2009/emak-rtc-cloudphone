@@ -163,6 +163,39 @@ class VertoClient {
         sendRequest("verto.bye", params)
     }
 
+    /**
+     * Holds or resumes a call via `verto.modify`. [action] is "hold", "unhold"
+     * or "toggleHold" — the same actions verto.js issues. FreeSWITCH pauses/
+     * resumes the media for this leg (so a held party hears hold music / silence
+     * and stops receiving our audio) without tearing the call down.
+     */
+    fun modify(callId: String, action: String) {
+        val dialogParams = JSONObject().apply { put("callID", callId) }
+        val params = JSONObject().apply {
+            put("action", action)
+            put("dialogParams", dialogParams)
+        }
+        sendRequest("verto.modify", params)
+    }
+
+    /**
+     * Blind-transfers a call to [destination] via `verto.modify` action
+     * "transfer". Logs the FreeSWITCH response so we can tell whether this build
+     * supports verto transfer (some only handle hold/unhold/toggleHold).
+     */
+    fun transfer(callId: String, destination: String) {
+        val dialogParams = JSONObject().apply { put("callID", callId) }
+        val params = JSONObject().apply {
+            put("action", "transfer")
+            put("destination", destination)
+            put("dialogParams", dialogParams)
+        }
+        sendRequest("verto.modify", params) { result, error ->
+            if (error != null) Log.w(TAG, "verto.modify transfer ERROR: $error")
+            else Log.i(TAG, "verto.modify transfer OK: $result")
+        }
+    }
+
     /** Sends a DTMF digit out-of-band (carried as a `verto.info`). */
     fun sendDtmf(callId: String, digit: Char) {
         val dialogParams = JSONObject().apply { put("callID", callId) }

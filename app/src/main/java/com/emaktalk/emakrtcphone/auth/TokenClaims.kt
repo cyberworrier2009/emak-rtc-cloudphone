@@ -52,12 +52,21 @@ object TokenClaims {
      * into the Verto registration. Returns null if the token carries no usable
      * extension.
      */
-    fun sipCredentials(accessToken: String): SipCredentials? {
+    fun sipCredentials(accessToken: String): SipCredentials? =
+        allSipCredentials(accessToken).firstOrNull()
+
+    /**
+     * Extracts every enabled extension (with a decryptable password) from the
+     * access token. When this returns more than one, the user is asked to pick
+     * which extension to sign in with; a single entry registers directly.
+     */
+    fun allSipCredentials(accessToken: String): List<SipCredentials> {
         val payload = decodePayload(accessToken) ?: run {
             Log.w(TAG, "Access token is not a decodable JWT")
-            return null
+            return emptyList()
         }
-        val extensions = payload.optJSONArray("userExtensions") ?: return null
+        val extensions = payload.optJSONArray("userExtensions") ?: return emptyList()
+        val result = mutableListOf<SipCredentials>()
         for (i in 0 until extensions.length()) {
             val ext = extensions.optJSONObject(i) ?: continue
             if (ext.optString("enabled", "true").equals("false", ignoreCase = true)) continue
@@ -74,14 +83,16 @@ object TokenClaims {
                 continue
             }
 
-            return SipCredentials(
-                extension = extension,
-                password = password,
-                domain = ext.optString("accountcode"),
-                callerIdName = ext.optString("effective_caller_id_name")
+            result.add(
+                SipCredentials(
+                    extension = extension,
+                    password = password,
+                    domain = ext.optString("accountcode"),
+                    callerIdName = ext.optString("effective_caller_id_name")
+                )
             )
         }
-        Log.w(TAG, "Token had no enabled extension with a password")
-        return null
+        if (result.isEmpty()) Log.w(TAG, "Token had no enabled extension with a password")
+        return result
     }
 }

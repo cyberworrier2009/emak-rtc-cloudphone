@@ -33,18 +33,29 @@ class WebRtcSession(
     val callId: String,
     private val factory: PeerConnectionFactory,
     iceServers: List<PeerConnection.IceServer>,
-    private val events: Events
+    private val events: Events,
+    /**
+     * Test hook: when true, ICE gathers ONLY relay candidates so media is forced
+     * over the TURN server (no direct/STUN path can win). Requires [iceServers]
+     * to actually contain TURN entries, else there are no candidates at all.
+     * Wired from [com.emaktalk.emakrtcphone.sip.SipCoreManager]'s FORCE_RELAY flag.
+     */
+    private val forceRelay: Boolean = false
 ) {
 
     /** Lifecycle callbacks surfaced to [com.emaktalk.emakrtcphone.sip.SipCoreManager]. */
     interface Events {
-        /** PeerConnection transport state changed (CONNECTED, FAILED, ...). */
-        fun onConnectionState(state: PeerConnection.PeerConnectionState)
+        /**
+         * PeerConnection transport state changed (CONNECTED, FAILED, ...). [callId]
+         * identifies which session/leg fired, so a multi-leg manager can route it.
+         */
+        fun onConnectionState(callId: String, state: PeerConnection.PeerConnectionState)
     }
 
     private var peerConnection: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var localAudioTrack: AudioTrack? = null
+    private var remoteAudioTrack: AudioTrack? = null
 
     private val statsCalculator = CallStatsCalculator()
     private var iceGatheringComplete = CompletableDeferred<Unit>()
@@ -61,7 +72,7 @@ class WebRtcSession(
 
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
             Log.i(TAG, "[$callId] connection -> $newState")
-            events.onConnectionState(newState)
+            events.onConnectionState(callId, newState)
         }
 
         override fun onIceCandidate(candidate: IceCandidate?) { /* non-trickle: bundled into SDP */ }
@@ -85,6 +96,7 @@ class WebRtcSession(
             val track = receiver?.track()
             if (track is AudioTrack) {
                 track.setEnabled(true)
+                remoteAudioTrack = track
                 Log.i(TAG, "[$callId] remote audio track received (${track.id()})")
             }
         }
@@ -97,7 +109,13 @@ class WebRtcSession(
             // candidates and let ICE pick by priority. Direct/STUN paths win when
             // they work; the TURN relay is only used when no direct path can be
             // established — i.e. TURN is the fallback, not the default route.
-            iceTransportsType = PeerConnection.IceTransportsType.ALL
+            // RELAY only when [forceRelay] is set, to deterministically test the
+            // TURN path (otherwise the direct path always wins on a good network).
+            iceTransportsType = if (forceRelay) {
+                PeerConnection.IceTransportsType.RELAY
+            } else {
+                PeerConnection.IceTransportsType.ALL
+            }
             // Gather all candidates up front; we send a full SDP (no trickle).
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
             // MAX_COMPAT, not MAX_BUNDLE: mod_verto's answer SDP does not echo an
@@ -223,6 +241,17 @@ class WebRtcSession(
     /** Mutes/unmutes the local mic. Returns the new muted state. */
     fun setMuted(muted: Boolean) {
         localAudioTrack?.setEnabled(!muted)
+    }
+
+    /**
+     * Locally pauses/resumes media for a held leg: stops sending our mic and
+     * silences the remote audio. FreeSWITCH also pauses the leg server-side via
+     * `verto.modify`; this is the immediate local effect. On resume the caller
+     * re-applies the mute state.
+     */
+    fun setHold(onHold: Boolean) {
+        localAudioTrack?.setEnabled(!onHold)
+        remoteAudioTrack?.setEnabled(!onHold)
     }
 
     /** Sends DTMF in-band over RTP (RFC 4733) as a backup to Verto's verto.info. */

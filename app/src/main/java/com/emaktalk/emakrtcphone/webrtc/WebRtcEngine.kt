@@ -104,9 +104,10 @@ object WebRtcEngine {
     fun createSession(
         callId: String,
         iceServers: List<PeerConnection.IceServer>,
-        observer: WebRtcSession.Events
+        observer: WebRtcSession.Events,
+        forceRelay: Boolean = false
     ): WebRtcSession {
         check(initialized) { "WebRtcEngine.initialize() must be called first" }
-        return WebRtcSession(callId, factory, iceServers, observer)
+        return WebRtcSession(callId, factory, iceServers, observer, forceRelay)
     }
 }

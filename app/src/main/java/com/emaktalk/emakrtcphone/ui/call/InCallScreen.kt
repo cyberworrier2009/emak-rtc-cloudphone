@@ -15,21 +15,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.CallMerge
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhoneInTalk
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SignalCellular4Bar
 import androidx.compose.material.icons.filled.SignalCellularAlt
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.SwapCalls
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -58,6 +66,7 @@ import com.emaktalk.emakrtcphone.network.NetworkType
 import com.emaktalk.emakrtcphone.sip.CallState
 import com.emaktalk.emakrtcphone.sip.CallUiState
 import com.emaktalk.emakrtcphone.sip.ConnectionPhase
+import com.emaktalk.emakrtcphone.sip.MediaPath
 import com.emaktalk.emakrtcphone.ui.components.DialPad
 import com.emaktalk.emakrtcphone.ui.theme.CallGreen
 import com.emaktalk.emakrtcphone.ui.theme.HangupRed
@@ -82,6 +91,16 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
     var showKeypad by remember { mutableStateOf(false) }
     var showRoutePicker by remember { mutableStateOf(false) }
 
+    // "Add Call" mode: the first call is parked on hold; pick the second party.
+    if (current.isAddingCall) {
+        AddCallContent(
+            heldTitle = current.heldCallTitle,
+            onPlace = viewModel::placeSecondCall,
+            onCancel = viewModel::cancelAddCall
+        )
+        return
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
@@ -93,6 +112,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ConnectionBanner(current, onReconnect = viewModel::forceReconnect)
+            MediaPathBanner(current.quality.mediaPath)
 
             Spacer(Modifier.height(if (current.connectionPhase == ConnectionPhase.Healthy) 48.dp else 16.dp))
             Text(
@@ -115,13 +135,20 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                 QualityRow(current)
             }
 
+            if (current.heldCallTitle != null) {
+                Spacer(Modifier.height(12.dp))
+                HeldCallChip(title = current.heldCallTitle!!, onSwap = viewModel::swapCalls)
+            }
+
             Spacer(Modifier.weight(1f))
 
             AnimatedVisibility(visible = showKeypad && current.isConnected) {
                 DialPad(
                     onKeyClick = { viewModel.sendDtmf(it) },
                     onZeroLongPress = { viewModel.sendDtmf('+') },
-                    modifier = Modifier.padding(bottom = 24.dp)
+                    modifier = Modifier.padding(bottom = 24.dp),
+                    digitColor = MaterialTheme.colorScheme.onSurface,
+                    letterColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -144,6 +171,47 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                     }
                 }
                 else -> {
+                    // Conference / multi-call controls (shown once connected).
+                    if (current.isConnected) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            if (current.hasSecondCall) {
+                                ToggleControl(
+                                    active = false,
+                                    iconActive = { Icon(Icons.Filled.SwapCalls, "Swap") },
+                                    iconInactive = { Icon(Icons.Filled.SwapCalls, "Swap") },
+                                    label = "Swap",
+                                    onClick = { viewModel.swapCalls() }
+                                )
+                                ToggleControl(
+                                    active = false,
+                                    iconActive = { Icon(Icons.Filled.CallMerge, "Merge") },
+                                    iconInactive = { Icon(Icons.Filled.CallMerge, "Merge") },
+                                    label = "Merge",
+                                    enabled = current.canMerge,
+                                    onClick = { viewModel.mergeCalls() }
+                                )
+                            } else {
+                                ToggleControl(
+                                    active = current.isOnHold,
+                                    iconActive = { Icon(Icons.Filled.PlayArrow, "Resume") },
+                                    iconInactive = { Icon(Icons.Filled.Pause, "Hold") },
+                                    label = if (current.isOnHold) "Resume" else "Hold",
+                                    onClick = { if (current.isOnHold) viewModel.resumeCall() else viewModel.holdCall() }
+                                )
+                                ToggleControl(
+                                    active = false,
+                                    iconActive = { Icon(Icons.Filled.PersonAdd, "Add call") },
+                                    iconInactive = { Icon(Icons.Filled.PersonAdd, "Add call") },
+                                    label = "Add call",
+                                    onClick = { viewModel.addCall() }
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -234,6 +302,133 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
     }
 }
 
+/** Tappable chip showing the other (parked) call leg; tap to swap to it. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HeldCallChip(title: String, onSwap: () -> Unit) {
+    Surface(
+        onClick = onSwap,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Icon(
+                Icons.Filled.Pause,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "On hold · $title",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.size(8.dp))
+            Icon(
+                Icons.Filled.SwapCalls,
+                contentDescription = "Swap",
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+/** Dialer shown while adding a second party; the first call stays on hold. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddCallContent(
+    heldTitle: String?,
+    onPlace: (String) -> Unit,
+    onCancel: () -> Unit
+) {
+    var number by remember { mutableStateOf("") }
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Filled.Close, contentDescription = "Cancel")
+                }
+                Spacer(Modifier.weight(1f))
+                Text("Add call", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.size(48.dp)) // balance the close button
+            }
+
+            if (heldTitle != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "On hold · $heldTitle",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.weight(0.4f))
+            Text(
+                text = number.ifEmpty { "Enter number" },
+                fontSize = if (number.isEmpty()) 22.sp else 40.sp,
+                fontWeight = if (number.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (number.isEmpty()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.weight(1f))
+
+            DialPad(
+                onKeyClick = { number += it },
+                onZeroLongPress = { number = number.dropLast(1) + "+" },
+                modifier = Modifier.padding(bottom = 24.dp),
+                digitColor = MaterialTheme.colorScheme.onSurface,
+                letterColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Spacer(Modifier.size(64.dp))
+                RoundActionButton(
+                    background = CallGreen,
+                    size = 72.dp,
+                    icon = {
+                        Icon(
+                            Icons.Filled.Call, "Call",
+                            tint = Color.White, modifier = Modifier.size(34.dp)
+                        )
+                    },
+                    onClick = { if (number.isNotEmpty()) onPlace(number) }
+                )
+                Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+                    if (number.isNotEmpty()) {
+                        IconButton(onClick = { number = number.dropLast(1) }) {
+                            Icon(
+                                Icons.Filled.Backspace, "Delete",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
 @Composable
 private fun ConnectionBanner(call: CallUiState, onReconnect: () -> Unit) {
     val (text, color) = when (call.connectionPhase) {
@@ -271,6 +466,59 @@ private fun ConnectionBanner(call: CallUiState, onReconnect: () -> Unit) {
     }
 }
 
+/**
+ * Transient banner announcing how media is flowing: it pops for a few seconds
+ * whenever the path first resolves or flips between a direct connection and the
+ * TURN relay (the lazy fallback). The persistent state still lives in
+ * [QualityRow]; this is just the "heads-up" the user asked for on each change.
+ */
+@Composable
+private fun MediaPathBanner(path: MediaPath) {
+    // The last *known* path we announced. Stays put across the brief Unknown
+    // blips so we don't re-announce the same path, and only fire on a real flip.
+    var announced by remember { mutableStateOf(MediaPath.Unknown) }
+    var visible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(path) {
+        if (path != MediaPath.Unknown && path != announced) {
+            announced = path
+            visible = true
+            delay(4000)
+            visible = false
+        }
+    }
+
+    AnimatedVisibility(visible = visible) {
+        val (text, color) = when (announced) {
+            MediaPath.Relay -> "Connected via TURN relay" to MaterialTheme.colorScheme.tertiaryContainer
+            MediaPath.Direct -> "Direct connection" to MaterialTheme.colorScheme.secondaryContainer
+            MediaPath.Unknown -> return@AnimatedVisibility
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(color)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Icon(
+                if (announced == MediaPath.Relay) Icons.Filled.SwapCalls else Icons.Filled.Wifi,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
 @Composable
 private fun QualityRow(call: CallUiState) {
     val bars = call.quality.bars
@@ -289,8 +537,14 @@ private fun QualityRow(call: CallUiState) {
             modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        val loss = if (call.quality.lossRate > 1f) " · ${call.quality.lossRate.toInt()}% loss" else ""
+        val path = when (call.quality.mediaPath) {
+            MediaPath.Direct -> " · Direct"
+            MediaPath.Relay -> " · TURN relay"
+            MediaPath.Unknown -> ""
+        }
         Text(
-            text = qualityLabel(bars) + if (call.quality.lossRate > 1f) " · ${call.quality.lossRate.toInt()}% loss" else "",
+            text = qualityLabel(bars) + loss + path,
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

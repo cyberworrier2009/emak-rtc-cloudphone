@@ -15,4 +15,13 @@ class InCallViewModel : ViewModel() {
     fun setAudioRoute(route: AudioRoute) = SipCoreManager.setAudioRoute(route)
     fun sendDtmf(digit: Char) = SipCoreManager.sendDtmf(digit)
     fun forceReconnect() = SipCoreManager.forceReconnect()
+
+    // Multi-call / conference
+    fun holdCall() = SipCoreManager.holdCall()
+    fun resumeCall() = SipCoreManager.resumeCall()
+    fun addCall() = SipCoreManager.addCall()
+    fun cancelAddCall() = SipCoreManager.cancelAddCall()
+    fun placeSecondCall(number: String) = SipCoreManager.placeSecondCall(number)
+    fun swapCalls() = SipCoreManager.swapCalls()
+    fun mergeCalls() = SipCoreManager.mergeCalls()
 }

@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Owns the app-level sign-in gate that sits in front of the dialer. It checks
@@ -45,6 +47,12 @@ object AuthManager {
         /** A login request is in flight. */
         LoggingIn,
 
+        /**
+         * Credentials accepted, but the token carries multiple extensions — the
+         * user must pick one (see [availableExtensions]) before [selectExtension].
+         */
+        SelectingExtension,
+
         /** Authenticated with a valid (or restored) session. */
         LoggedIn,
 
@@ -52,9 +60,23 @@ object AuthManager {
         Failed
     }
 
+    /** A pickable extension shown on the selection screen. */
+    data class ExtensionOption(val extension: String, val callerIdName: String) {
+        /** Label for the list row: caller-id name when present, else the number. */
+        val label: String get() = callerIdName.ifBlank { extension }
+    }
+
     private lateinit var tokenStore: AuthTokenStore
     private val api = AuthApi()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Serializes token refreshes so two concurrent authed calls don't both spend
+    // the (rotating) refresh token; the loser sees the already-refreshed token.
+    private val refreshMutex = Mutex()
+
+    // Refresh a little before the access token actually lapses, to absorb clock
+    // skew and in-flight request latency.
+    private const val ACCESS_EXPIRY_SKEW_MS = 30_000L
 
     private val _state = MutableStateFlow(State.Unknown)
     val state: StateFlow<State> = _state.asStateFlow()
@@ -62,6 +84,13 @@ object AuthManager {
     /** Last login error, shown on the login screen then superseded by the next attempt. */
     private val _error = MutableStateFlow("")
     val error: StateFlow<String> = _error.asStateFlow()
+
+    /** Extensions to choose from while [state] is [State.SelectingExtension]. */
+    private val _availableExtensions = MutableStateFlow<List<ExtensionOption>>(emptyList())
+    val availableExtensions: StateFlow<List<ExtensionOption>> = _availableExtensions.asStateFlow()
+
+    /** Decrypted credentials for the extensions awaiting selection. */
+    private var pendingExtensions: List<SipCredentials> = emptyList()
 
     /**
      * Reads back any saved session. Call once at app launch (before the first
@@ -91,6 +120,51 @@ object AuthManager {
         get() = accessToken?.let { TokenClaims.userId(it) }
 
     /**
+     * Ensures [accessToken]/[userId] return a non-expired token, refreshing it
+     * via the (rotating) refresh token when it has lapsed. Call this from a
+     * coroutine before any authenticated backend request (e.g. the TURN fetch) —
+     * the backend access token is short-lived (~3h) and was previously never
+     * refreshed, so calls like TURN silently 401'd once it expired.
+     *
+     * @return true if a usable, non-expired access token is now stored; false if
+     *   the refresh token is also gone/expired (the user must sign in again — we
+     *   flip [state] to [State.LoggedOut] so the UI routes back to login).
+     */
+    suspend fun refreshIfNeeded(): Boolean {
+        if (!::tokenStore.isInitialized) return false
+        val current = tokenStore.load() ?: return false
+        if (current.accessExpiresAtMillis - ACCESS_EXPIRY_SKEW_MS > System.currentTimeMillis()) {
+            return true // still valid; no refresh needed
+        }
+        return refreshMutex.withLock {
+            // Re-check under the lock: a concurrent caller may have just refreshed.
+            val latest = tokenStore.load() ?: return@withLock false
+            val now = System.currentTimeMillis()
+            if (latest.accessExpiresAtMillis - ACCESS_EXPIRY_SKEW_MS > now) return@withLock true
+
+            if (latest.refreshToken.isBlank() || latest.refreshExpiresAtMillis <= now) {
+                Log.w(TAG, "Refresh token missing/expired; sign-in required")
+                _state.value = State.LoggedOut
+                return@withLock false
+            }
+
+            api.refresh(latest.refreshToken).fold(
+                onSuccess = { fresh ->
+                    tokenStore.save(fresh)
+                    Log.i(TAG, "Access token refreshed")
+                    true
+                },
+                onFailure = { e ->
+                    // Transient (network) failure: keep the session, let the caller
+                    // proceed/fail; don't log the user out over a blip.
+                    Log.w(TAG, "Token refresh failed: ${e.message}")
+                    false
+                }
+            )
+        }
+    }
+
+    /**
      * Authenticates [username]/[password] against the backend and, on success,
      * persists the tokens and flips [state] to [State.LoggedIn]. Blank input is a
      * no-op. Safe to call from the main thread; the network request runs off it.
@@ -106,12 +180,22 @@ object AuthManager {
                 .onSuccess { tokens ->
                     tokenStore.save(tokens)
                     _error.value = ""
-                    _state.value = State.LoggedIn
                     Log.i(TAG, "Login succeeded for $username")
-                    // The access token carries the user's FreeSWITCH extension and
-                    // SIP password — register the softphone with them so the user
-                    // is ready to call right after signing in.
-                    registerSipFromToken(tokens.accessToken)
+                    // The access token carries the user's FreeSWITCH extension(s)
+                    // and SIP password(s). One extension → register straight away;
+                    // several → ask the user which to sign in with.
+                    val extensions = TokenClaims.allSipCredentials(tokens.accessToken)
+                    if (extensions.size > 1) {
+                        pendingExtensions = extensions
+                        _availableExtensions.value = extensions.map {
+                            ExtensionOption(it.extension, it.callerIdName)
+                        }
+                        _state.value = State.SelectingExtension
+                        Log.i(TAG, "Token has ${extensions.size} extensions; awaiting selection")
+                    } else {
+                        _state.value = State.LoggedIn
+                        extensions.firstOrNull()?.let { registerSip(it) }
+                    }
                 }
                 .onFailure { e ->
                     _error.value = e.message ?: "Login failed"
@@ -121,23 +205,37 @@ object AuthManager {
         }
     }
 
+    /**
+     * Completes sign-in by registering the chosen [extension] (from
+     * [availableExtensions]). No-op unless we're awaiting a selection.
+     */
+    fun selectExtension(extension: String) {
+        if (_state.value != State.SelectingExtension) return
+        val creds = pendingExtensions.firstOrNull { it.extension == extension } ?: return
+        pendingExtensions = emptyList()
+        _availableExtensions.value = emptyList()
+        _state.value = State.LoggedIn
+        Log.i(TAG, "User selected extension ${creds.extension}")
+        registerSip(creds)
+    }
+
     /** Clears the saved session, signs the softphone out, and returns to login. */
     fun logout() {
         if (::tokenStore.isInitialized) tokenStore.clear()
         SipCoreManager.unregister()
+        pendingExtensions = emptyList()
+        _availableExtensions.value = emptyList()
         _error.value = ""
         _state.value = State.LoggedOut
     }
 
     /**
-     * Decodes the access token, pulls the user's extension/SIP password out of
-     * its `userExtensions` claim, and registers the Verto softphone. The SIP
-     * domain is the extension's `accountcode`. No-op if the token carries no
-     * usable extension. The credentials are persisted by [SipCoreManager], so a
-     * later launch reconnects via its own session restore without re-decoding.
+     * Registers the Verto softphone with [creds]. The SIP domain is the
+     * extension's `accountcode`. The credentials are persisted by
+     * [SipCoreManager], so a later launch reconnects via its own session restore
+     * without re-decoding or re-prompting for the extension.
      */
-    private fun registerSipFromToken(accessToken: String) {
-        val creds = TokenClaims.sipCredentials(accessToken) ?: return
+    private fun registerSip(creds: SipCredentials) {
         if (creds.domain.isBlank()) {
             Log.w(TAG, "Extension ${creds.extension} has no accountcode; skipping SIP registration")
             return
