@@ -103,6 +103,7 @@ object SipCoreManager {
     private var heldIsOutgoing = false
     private var onHold = false          // the active leg is held by the user
     private var addingCall = false      // dialer overlay open to pick the 2nd party
+    private var transferring = false    // dialer overlay open to pick a transfer target
     private var isConferenceLeg = false // the active leg is the merged conference
 
     private var muted = false
@@ -593,6 +594,58 @@ object SipCoreManager {
         return (3500 + offset % 100).toString()
     }
 
+    /**
+     * "Transfer" (blind / unattended): keeps the active leg up and opens the
+     * dialer to pick where to send the remote party. [completeBlindTransfer]
+     * then issues a verto transfer and drops our leg — FreeSWITCH redirects the
+     * remote party straight to the destination, so we don't stay on the call
+     * (unlike attended transfer, we never speak to the target first).
+     */
+    fun beginTransfer() {
+        if (callId == null) return
+        if (transferring || addingCall) return
+        transferring = true
+        _callState.value = snapshot(CallState.Connected)
+    }
+
+    /** Cancels the transfer dialer and returns to the active call unchanged. */
+    fun cancelTransfer() {
+        if (!transferring) return
+        transferring = false
+        _callState.value = snapshot(currentState)
+    }
+
+    /**
+     * Blind-transfers the active remote party to [rawNumber] and tears our leg
+     * down. After `verto.modify` action=transfer, FreeSWITCH redirects the
+     * remote party to the destination and releases our leg, so we clean up
+     * locally (promoting a parked leg if one exists, like [terminateCall]).
+     * Transfer only works on a *bridged* (answered) leg.
+     */
+    fun completeBlindTransfer(rawNumber: String) {
+        if (!transferring) return
+        val id = callId ?: return
+        val destination = normalizeDestination(rawNumber.trim())
+        if (destination.isEmpty()) return
+        transferring = false
+        Log.i(TAG, "Blind-transferring leg $id to $destination")
+
+        verto.transfer(id, destination)
+
+        // Our leg is being redirected away; drop it locally. A later verto.bye
+        // for this leg is harmless (the callId no longer matches an active leg).
+        if (heldCallId != null) {
+            session?.close()
+            session = null
+            callId = null
+            onHold = false
+            promoteHeldLeg()
+            return
+        }
+        cleanupCall()
+        changeState(CallState.Released)
+    }
+
     /** Brings the parked (held) leg back to the foreground and resumes it. */
     private fun promoteHeldLeg() {
         val heldId = heldCallId
@@ -932,6 +985,7 @@ object SipCoreManager {
         isOnHold = onHold,
         heldCallTitle = heldCallId?.let { heldDisplayName.ifBlank { heldRemoteUri } },
         isAddingCall = addingCall,
+        isTransferring = transferring,
         canMerge = heldCallId != null && state.isConnected && !addingCall,
         isConference = isConferenceLeg
     )
@@ -952,6 +1006,7 @@ object SipCoreManager {
         heldRemoteUri = ""
         onHold = false
         addingCall = false
+        transferring = false
         isConferenceLeg = false
     }
 

@@ -37,6 +37,8 @@ data class CallUiState(
     val heldCallTitle: String? = null,
     /** True while the user is dialing a second party to add to the call. */
     val isAddingCall: Boolean = false,
+    /** True while the user is picking a destination to blind-transfer the call to. */
+    val isTransferring: Boolean = false,
     /** True once both legs are connected, so they can be merged. */
     val canMerge: Boolean = false,
     /** True when this leg is the merged conference room. */

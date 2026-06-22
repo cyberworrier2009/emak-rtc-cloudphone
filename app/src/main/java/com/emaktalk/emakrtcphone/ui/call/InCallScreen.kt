@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhoneForwarded
 import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SignalCellular4Bar
@@ -97,6 +98,16 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
             heldTitle = current.heldCallTitle,
             onPlace = viewModel::placeSecondCall,
             onCancel = viewModel::cancelAddCall
+        )
+        return
+    }
+
+    // "Transfer" mode: pick where to blind-transfer the current party.
+    if (current.isTransferring) {
+        TransferCallContent(
+            callTitle = current.title,
+            onTransfer = viewModel::completeBlindTransfer,
+            onCancel = viewModel::cancelTransfer
         )
         return
     }
@@ -207,6 +218,13 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                                     iconInactive = { Icon(Icons.Filled.PersonAdd, "Add call") },
                                     label = "Add call",
                                     onClick = { viewModel.addCall() }
+                                )
+                                ToggleControl(
+                                    active = false,
+                                    iconActive = { Icon(Icons.Filled.PhoneForwarded, "Transfer") },
+                                    iconInactive = { Icon(Icons.Filled.PhoneForwarded, "Transfer") },
+                                    label = "Transfer",
+                                    onClick = { viewModel.beginTransfer() }
                                 )
                             }
                         }
@@ -412,6 +430,99 @@ private fun AddCallContent(
                         )
                     },
                     onClick = { if (number.isNotEmpty()) onPlace(number) }
+                )
+                Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+                    if (number.isNotEmpty()) {
+                        IconButton(onClick = { number = number.dropLast(1) }) {
+                            Icon(
+                                Icons.Filled.Backspace, "Delete",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/**
+ * Dialer shown while blind-transferring the current party. The call stays up
+ * until a destination is picked; on confirm the remote party is redirected and
+ * our leg drops.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TransferCallContent(
+    callTitle: String,
+    onTransfer: (String) -> Unit,
+    onCancel: () -> Unit
+) {
+    var number by remember { mutableStateOf("") }
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onCancel) {
+                    Icon(Icons.Filled.Close, contentDescription = "Cancel")
+                }
+                Spacer(Modifier.weight(1f))
+                Text("Transfer call", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.size(48.dp)) // balance the close button
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Transfer $callTitle to…",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.weight(0.4f))
+            Text(
+                text = number.ifEmpty { "Enter number" },
+                fontSize = if (number.isEmpty()) 22.sp else 40.sp,
+                fontWeight = if (number.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
+                color = if (number.isEmpty()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.weight(1f))
+
+            DialPad(
+                onKeyClick = { number += it },
+                onZeroLongPress = { number = number.dropLast(1) + "+" },
+                modifier = Modifier.padding(bottom = 24.dp),
+                digitColor = MaterialTheme.colorScheme.onSurface,
+                letterColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Spacer(Modifier.size(64.dp))
+                RoundActionButton(
+                    background = CallGreen,
+                    size = 72.dp,
+                    icon = {
+                        Icon(
+                            Icons.Filled.PhoneForwarded, "Transfer",
+                            tint = Color.White, modifier = Modifier.size(34.dp)
+                        )
+                    },
+                    onClick = { if (number.isNotEmpty()) onTransfer(number) }
                 )
                 Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
                     if (number.isNotEmpty()) {

@@ -24,4 +24,9 @@ class InCallViewModel : ViewModel() {
     fun placeSecondCall(number: String) = SipCoreManager.placeSecondCall(number)
     fun swapCalls() = SipCoreManager.swapCalls()
     fun mergeCalls() = SipCoreManager.mergeCalls()
+
+    // Blind transfer
+    fun beginTransfer() = SipCoreManager.beginTransfer()
+    fun cancelTransfer() = SipCoreManager.cancelTransfer()
+    fun completeBlindTransfer(number: String) = SipCoreManager.completeBlindTransfer(number)
 }
