@@ -59,6 +59,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.sip.RegistrationState
 import com.emaktalk.emakrtcphone.ui.components.DialPad
+import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
+import com.emaktalk.emakrtcphone.ui.responsive.scaled
 import com.emaktalk.emakrtcphone.ui.theme.BrandIndigo
 import com.emaktalk.emakrtcphone.ui.theme.CallGreenVivid
 import com.emaktalk.emakrtcphone.ui.theme.CallGreenLight
@@ -119,11 +121,18 @@ fun DialerScreen(
         containerColor = DialerBackground,
         bottomBar = { DialerBottomBar(onOpenSettings = onOpenAccount) }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 24.dp)
+                .padding(innerPadding),
+            // Centre the content so it doesn't stretch edge-to-edge on tablets.
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Column(
+            modifier = Modifier
+                .maxContentWidth()
+                .fillMaxSize()
+                .padding(horizontal = 24.dp.scaled)
         ) {
             DialerHeader(registration = registration)
 
@@ -131,13 +140,13 @@ fun DialerScreen(
 
             Text(
                 text = stringResource(R.string.dialer_title),
-                fontSize = 34.sp,
+                fontSize = 34.sp.scaled,
                 fontWeight = FontWeight.Bold,
                 color = DialerOnSurface
             )
             Text(
                 text = stringResource(R.string.dialer_subtitle),
-                fontSize = 14.sp,
+                fontSize = 14.sp.scaled,
                 color = DialerMuted,
                 modifier = Modifier.padding(top = 2.dp)
             )
@@ -145,8 +154,8 @@ fun DialerScreen(
             NumberDisplay(
                 number = number,
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
+                    .padding(vertical = 12.dp.scaled)
             )
 
             if (suggestion != null) {
@@ -158,10 +167,15 @@ fun DialerScreen(
                 )
             }
 
+            // weight(1f) gives the pad the leftover height (bounded), so it
+            // shrinks its keys to fit instead of pushing the call button off the
+            // bottom on short screens.
             DialPad(
                 onKeyClick = viewModel::onKeyPress,
                 onZeroLongPress = viewModel::onZeroLongPress,
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(bottom = 12.dp)
             )
 
             CallActionRow(
@@ -176,6 +190,7 @@ fun DialerScreen(
                     .fillMaxWidth()
                     .padding(bottom = 12.dp)
             )
+        }
         }
     }
 }
@@ -249,7 +264,7 @@ private fun NumberDisplay(number: String, modifier: Modifier = Modifier) {
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         Text(
             text = number.ifEmpty { stringResource(R.string.dialer_hint) },
-            fontSize = if (number.isEmpty()) 24.sp else 44.sp,
+            fontSize = if (number.isEmpty()) 24.sp.scaled else 44.sp.scaled,
             fontWeight = if (number.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
             color = if (number.isEmpty()) DialerMuted else DialerOnSurface,
             maxLines = 1,
@@ -309,7 +324,7 @@ private fun CallActionRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         // Add the dialed number as a new contact.
-        Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(64.dp.scaled), contentAlignment = Alignment.Center) {
             IconButton(onClick = onAddContact) {
                 Icon(
                     Icons.Filled.PersonAdd,
@@ -324,7 +339,7 @@ private fun CallActionRow(
             color = CallGreenVivid,
             onClick = onCall,
             modifier = Modifier
-                .size(72.dp)
+                .size(72.dp.scaled)
                 .clip(CircleShape)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -332,17 +347,17 @@ private fun CallActionRow(
                     Icons.Filled.Call,
                     contentDescription = stringResource(R.string.call),
                     tint = Color.White,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(32.dp.scaled)
                 )
             }
         }
 
-        Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(64.dp.scaled), contentAlignment = Alignment.Center) {
             if (showBackspace) {
                 // Tap deletes one digit, long-press clears the whole number.
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(56.dp.scaled)
                         .clip(CircleShape)
                         .combinedClickable(
                             onClick = onBackspace,

@@ -30,8 +30,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Box
 import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.auth.AuthManager
+import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 
 /**
  * Shown after login when the account's token carries more than one enabled
@@ -44,11 +46,18 @@ fun ExtensionSelectScreen() {
     val extensions by AuthManager.availableExtensions.collectAsState()
 
     Scaffold { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(innerPadding)
-                .padding(24.dp)
                 .fillMaxSize(),
+            // Centre the picker and keep it a readable width on tablets.
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Column(
+            modifier = Modifier
+                .maxContentWidth()
+                .fillMaxSize()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.height(48.dp))
@@ -74,6 +83,7 @@ fun ExtensionSelectScreen() {
                 )
                 Spacer(Modifier.height(12.dp))
             }
+        }
         }
     }
 }

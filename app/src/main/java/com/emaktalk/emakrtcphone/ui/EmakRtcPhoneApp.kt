@@ -1,6 +1,7 @@
 package com.emaktalk.emakrtcphone.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -8,6 +9,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.emaktalk.emakrtcphone.auth.AuthManager
+import com.emaktalk.emakrtcphone.ui.responsive.LocalUiScale
+import com.emaktalk.emakrtcphone.ui.responsive.rememberUiScale
 import com.emaktalk.emakrtcphone.sip.SipCoreManager
 import com.emaktalk.emakrtcphone.ui.account.AccountScreen
 import com.emaktalk.emakrtcphone.ui.call.InCallScreen
@@ -73,24 +76,26 @@ fun EmakRtcPhoneApp() {
         }
     }
 
-    NavHost(navController = navController, startDestination = startDestination) {
-        composable(Routes.LOGIN) {
-            LoginScreen()
-        }
-        composable(Routes.EXTENSION_SELECT) {
-            ExtensionSelectScreen()
-        }
-        composable(Routes.DIALER) {
-            DialerScreen(
-                onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
-                onLogout = { AuthManager.logout() }
-            )
-        }
-        composable(Routes.ACCOUNT) {
-            AccountScreen(onBack = { navController.popBackStack() })
-        }
-        composable(Routes.IN_CALL) {
-            InCallScreen()
+    CompositionLocalProvider(LocalUiScale provides rememberUiScale()) {
+        NavHost(navController = navController, startDestination = startDestination) {
+            composable(Routes.LOGIN) {
+                LoginScreen()
+            }
+            composable(Routes.EXTENSION_SELECT) {
+                ExtensionSelectScreen()
+            }
+            composable(Routes.DIALER) {
+                DialerScreen(
+                    onOpenAccount = { navController.navigate(Routes.ACCOUNT) },
+                    onLogout = { AuthManager.logout() }
+                )
+            }
+            composable(Routes.ACCOUNT) {
+                AccountScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.IN_CALL) {
+                InCallScreen()
+            }
         }
     }
 }

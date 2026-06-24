@@ -1,6 +1,7 @@
 package com.emaktalk.emakrtcphone.ui.login
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.auth.AuthManager
+import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 
 /**
  * App entry gate: the user must sign in here before reaching the dialer. On a
@@ -53,11 +55,18 @@ fun LoginScreen(
     val isLoggingIn = state == AuthManager.State.LoggingIn
 
     Scaffold { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(innerPadding)
-                .padding(24.dp)
+                .fillMaxSize(),
+            // Keep the form a comfortable reading width and centred on tablets.
+            contentAlignment = Alignment.Center
+        ) {
+        Column(
+            modifier = Modifier
+                .maxContentWidth()
                 .fillMaxSize()
+                .padding(24.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -127,6 +136,7 @@ fun LoginScreen(
                     Text(stringResource(R.string.login_action))
                 }
             }
+        }
         }
     }
 }

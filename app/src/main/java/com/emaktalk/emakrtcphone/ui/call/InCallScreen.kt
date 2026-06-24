@@ -69,6 +69,8 @@ import com.emaktalk.emakrtcphone.sip.CallUiState
 import com.emaktalk.emakrtcphone.sip.ConnectionPhase
 import com.emaktalk.emakrtcphone.sip.MediaPath
 import com.emaktalk.emakrtcphone.ui.components.DialPad
+import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
+import com.emaktalk.emakrtcphone.ui.responsive.scaled
 import com.emaktalk.emakrtcphone.ui.theme.CallGreen
 import com.emaktalk.emakrtcphone.ui.theme.HangupRed
 import kotlinx.coroutines.delay
@@ -116,19 +118,22 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
     ) {
+      // Centre + cap the content so it stays proportional on wide screens.
+      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
+                .maxContentWidth()
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(24.dp.scaled),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ConnectionBanner(current, onReconnect = viewModel::forceReconnect)
             MediaPathBanner(current.quality.mediaPath)
 
-            Spacer(Modifier.height(if (current.connectionPhase == ConnectionPhase.Healthy) 48.dp else 16.dp))
+            Spacer(Modifier.height(if (current.connectionPhase == ConnectionPhase.Healthy) 48.dp.scaled else 16.dp.scaled))
             Text(
                 text = current.title,
-                fontSize = 28.sp,
+                fontSize = 28.sp.scaled,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
@@ -137,7 +142,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = statusLabel(current, seconds),
-                fontSize = 16.sp,
+                fontSize = 16.sp.scaled,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -280,7 +285,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                                 Icons.Filled.CallEnd,
                                 "Hang up",
                                 tint = Color.White,
-                                modifier = Modifier.size(34.dp)
+                                modifier = Modifier.size(34.dp.scaled)
                             )
                         },
                         onClick = viewModel::hangUp
@@ -290,6 +295,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
 
             Spacer(Modifier.height(24.dp))
         }
+      }
     }
 
     if (showRoutePicker) {
@@ -368,8 +374,9 @@ private fun AddCallContent(
 ) {
     var number by remember { mutableStateOf("") }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.maxContentWidth().fillMaxSize().padding(24.dp.scaled),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -377,7 +384,7 @@ private fun AddCallContent(
                     Icon(Icons.Filled.Close, contentDescription = "Cancel")
                 }
                 Spacer(Modifier.weight(1f))
-                Text("Add call", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("Add call", fontSize = 18.sp.scaled, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Spacer(Modifier.size(48.dp)) // balance the close button
             }
@@ -391,10 +398,10 @@ private fun AddCallContent(
                 )
             }
 
-            Spacer(Modifier.weight(0.4f))
+            Spacer(Modifier.height(24.dp.scaled))
             Text(
                 text = number.ifEmpty { "Enter number" },
-                fontSize = if (number.isEmpty()) 22.sp else 40.sp,
+                fontSize = if (number.isEmpty()) 22.sp.scaled else 40.sp.scaled,
                 fontWeight = if (number.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
                 color = if (number.isEmpty()) {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -404,12 +411,15 @@ private fun AddCallContent(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.weight(1f))
 
+            // Pad takes the leftover (bounded) height so the call button below
+            // is always visible, even on short screens.
             DialPad(
                 onKeyClick = { number += it },
                 onZeroLongPress = { number = number.dropLast(1) + "+" },
-                modifier = Modifier.padding(bottom = 24.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 12.dp),
                 digitColor = MaterialTheme.colorScheme.onSurface,
                 letterColor = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -426,7 +436,7 @@ private fun AddCallContent(
                     icon = {
                         Icon(
                             Icons.Filled.Call, "Call",
-                            tint = Color.White, modifier = Modifier.size(34.dp)
+                            tint = Color.White, modifier = Modifier.size(34.dp.scaled)
                         )
                     },
                     onClick = { if (number.isNotEmpty()) onPlace(number) }
@@ -444,6 +454,7 @@ private fun AddCallContent(
             }
             Spacer(Modifier.height(24.dp))
         }
+      }
     }
 }
 
@@ -461,8 +472,9 @@ private fun TransferCallContent(
 ) {
     var number by remember { mutableStateOf("") }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+      Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.maxContentWidth().fillMaxSize().padding(24.dp.scaled),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -470,7 +482,7 @@ private fun TransferCallContent(
                     Icon(Icons.Filled.Close, contentDescription = "Cancel")
                 }
                 Spacer(Modifier.weight(1f))
-                Text("Transfer call", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("Transfer call", fontSize = 18.sp.scaled, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Spacer(Modifier.size(48.dp)) // balance the close button
             }
@@ -478,16 +490,16 @@ private fun TransferCallContent(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Transfer $callTitle to…",
-                fontSize = 13.sp,
+                fontSize = 13.sp.scaled,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(Modifier.weight(0.4f))
+            Spacer(Modifier.height(24.dp.scaled))
             Text(
                 text = number.ifEmpty { "Enter number" },
-                fontSize = if (number.isEmpty()) 22.sp else 40.sp,
+                fontSize = if (number.isEmpty()) 22.sp.scaled else 40.sp.scaled,
                 fontWeight = if (number.isEmpty()) FontWeight.Normal else FontWeight.SemiBold,
                 color = if (number.isEmpty()) {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -497,12 +509,15 @@ private fun TransferCallContent(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.weight(1f))
 
+            // Pad takes the leftover (bounded) height so the transfer button
+            // below is always visible, even on short screens.
             DialPad(
                 onKeyClick = { number += it },
                 onZeroLongPress = { number = number.dropLast(1) + "+" },
-                modifier = Modifier.padding(bottom = 24.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 12.dp),
                 digitColor = MaterialTheme.colorScheme.onSurface,
                 letterColor = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -519,7 +534,7 @@ private fun TransferCallContent(
                     icon = {
                         Icon(
                             Icons.Filled.PhoneForwarded, "Transfer",
-                            tint = Color.White, modifier = Modifier.size(34.dp)
+                            tint = Color.White, modifier = Modifier.size(34.dp.scaled)
                         )
                     },
                     onClick = { if (number.isNotEmpty()) onTransfer(number) }
@@ -537,6 +552,7 @@ private fun TransferCallContent(
             }
             Spacer(Modifier.height(24.dp))
         }
+      }
     }
 }
 
@@ -724,7 +740,7 @@ private fun RoundActionButton(
         color = background,
         onClick = onClick,
         modifier = modifier
-            .size(size)
+            .size(size.scaled)
             .clip(CircleShape)
     ) {
         Box(contentAlignment = Alignment.Center) { icon() }
@@ -763,7 +779,7 @@ private fun ToggleControl(
             onClick = onClick,
             enabled = enabled,
             modifier = Modifier
-                .size(60.dp)
+                .size(60.dp.scaled)
                 .clip(CircleShape)
         ) {
             Box(contentAlignment = Alignment.Center) {

@@ -1,9 +1,11 @@
 package com.emaktalk.emakrtcphone.ui.account
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,6 +41,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.sip.RegistrationState
 import com.emaktalk.emakrtcphone.sip.VertoTransport
+import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,11 +70,18 @@ fun AccountScreen(
             )
         }
     ) { innerPadding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(innerPadding)
+                .fillMaxSize(),
+            // Centre the settings form and keep it a readable width on tablets.
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Column(
+            modifier = Modifier
+                .maxContentWidth()
+                .fillMaxSize()
                 .padding(24.dp)
-                .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -130,6 +141,7 @@ fun AccountScreen(
             ) {
                 Text(stringResource(R.string.account_unregister))
             }
+        }
         }
     }
 }
