@@ -2,13 +2,6 @@ package com.emaktalk.emakrtcphone.auth
 
 import android.content.Context
 
-/**
- * The OAuth tokens returned by `POST /api/v1/auth/login`, plus the absolute
- * (wall-clock) instants the access and refresh tokens expire. The server hands
- * back relative lifetimes (`expires_in` / `refresh_expires_in`, in seconds); we
- * convert them to absolute timestamps at save time so a later launch can tell
- * whether the saved session is still valid without re-deriving "now minus then".
- */
 data class AuthTokens(
     val accessToken: String,
     val refreshToken: String,
@@ -17,16 +10,6 @@ data class AuthTokens(
     val refreshExpiresAtMillis: Long
 )
 
-/**
- * Persists the login tokens so the user stays signed in across app restarts and
- * reboots, and the login screen is skipped on the next launch while the session
- * is still valid.
- *
- * NOTE: this uses plain [android.content.SharedPreferences], so the tokens are
- * stored in the app's private (but unencrypted) prefs — the same trade-off as
- * [com.emaktalk.emakrtcphone.sip.AccountStore]. For a production build, back
- * this with EncryptedSharedPreferences (androidx.security:security-crypto).
- */
 class AuthTokenStore(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -56,10 +39,6 @@ class AuthTokenStore(context: Context) {
         prefs.edit().clear().apply()
     }
 
-    /**
-     * True when a saved session exists and the refresh token has not yet expired,
-     * i.e. the user can be sent straight into the app without logging in again.
-     */
     val hasValidSession: Boolean
         get() {
             val tokens = load() ?: return false

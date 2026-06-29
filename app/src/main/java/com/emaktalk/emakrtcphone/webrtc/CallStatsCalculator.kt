@@ -4,17 +4,6 @@ import com.emaktalk.emakrtcphone.sip.CallQualityStats
 import com.emaktalk.emakrtcphone.sip.MediaPath
 import org.webrtc.RTCStatsReport
 
-/**
- * Folds a WebRTC [RTCStatsReport] into the app's [CallQualityStats], deriving a
- * MOS estimate the way Linphone handed us one for free in the reference project.
- *
- * MOS uses a simplified ITU-T G.107 E-model: compute a transmission rating R
- * from effective latency (RTT + jitter) and packet loss, then map R → MOS.
- * It's an approximation, but good enough to drive the same 0–5 signal-bars UI.
- *
- * Stateful: kept per [WebRtcSession] so byte/packet counters can be diffed
- * between the ~1Hz polls.
- */
 class CallStatsCalculator {
 
     private var prevBytesReceived = 0.0
@@ -22,8 +11,7 @@ class CallStatsCalculator {
     private var prevPacketsLost = 0.0
     private var prevPacketsReceived = 0.0
     private var prevTimestampUs = 0.0
-    // Sticky so the indicator doesn't flicker to Unknown on a report that omits
-    // the candidate pair; once a path is known it stays until it actually changes.
+
     private var lastMediaPath = MediaPath.Unknown
 
     fun consume(report: RTCStatsReport): CallQualityStats {
@@ -35,7 +23,6 @@ class CallStatsCalculator {
         var rttSec = 0.0
         var timestampUs = 0.0
 
-        // For the direct-vs-TURN indicator: candidate type by id + the pairs.
         val candidateTypeById = HashMap<String, String>()
         val candidatePairs = ArrayList<Pair<String, Map<String, Any>>>()
         var selectedPairId: String? = null
@@ -96,7 +83,7 @@ class CallStatsCalculator {
 
         val jitterMs = jitterSec * 1000.0
         val rttMs = rttSec * 1000.0
-        // No inbound data yet → report MOS 0 so the UI shows "Measuring…".
+
         val mos = if (packetsReceived <= 0.0) 0.0 else estimateMos(rttMs, jitterMs, lossPct)
 
         return CallQualityStats(
@@ -110,12 +97,6 @@ class CallStatsCalculator {
         )
     }
 
-    /**
-     * Resolves the active media path from the nominated ICE candidate pair: if
-     * either end's selected candidate is a TURN `relay` candidate, media is
-     * relayed; host/srflx means direct. Returns null when no pair is resolvable
-     * yet (caller keeps the last known value).
-     */
     private fun resolveMediaPath(
         candidateTypeById: Map<String, String>,
         candidatePairs: List<Pair<String, Map<String, Any>>>,
@@ -137,7 +118,6 @@ class CallStatsCalculator {
         }
     }
 
-    /** Simplified E-model: latency + loss → R factor → MOS (1.0–5.0). */
     private fun estimateMos(rttMs: Double, jitterMs: Double, lossPct: Double): Double {
         val effectiveLatency = rttMs + (jitterMs * 2) + 10.0
         var r = if (effectiveLatency < 160) {
@@ -145,7 +125,7 @@ class CallStatsCalculator {
         } else {
             93.2 - ((effectiveLatency - 120.0) / 10.0)
         }
-        // Each 1% of loss costs ~2.5 R points (Bjork/ITU approximation).
+
         r -= lossPct * 2.5
         if (r < 0) return 1.0
         val mos = 1.0 + (0.035 * r) + (r * (r - 60.0) * (100.0 - r) * 7e-6)

@@ -74,7 +74,7 @@ fun AccountScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
-            // Centre the settings form and keep it a readable width on tablets.
+
             contentAlignment = Alignment.TopCenter
         ) {
         Column(

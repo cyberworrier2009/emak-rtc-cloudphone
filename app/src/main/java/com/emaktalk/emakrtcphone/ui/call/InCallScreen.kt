@@ -94,7 +94,6 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
     var showKeypad by remember { mutableStateOf(false) }
     var showRoutePicker by remember { mutableStateOf(false) }
 
-    // "Add Call" mode: the first call is parked on hold; pick the second party.
     if (current.isAddingCall) {
         AddCallContent(
             heldTitle = current.heldCallTitle,
@@ -104,7 +103,6 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
         return
     }
 
-    // "Transfer" mode: pick where to blind-transfer the current party.
     if (current.isTransferring) {
         TransferCallContent(
             callTitle = current.title,
@@ -118,7 +116,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
     ) {
-      // Centre + cap the content so it stays proportional on wide screens.
+
       Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
@@ -187,7 +185,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                     }
                 }
                 else -> {
-                    // Conference / multi-call controls (shown once connected).
+
                     if (current.isConnected) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
@@ -254,8 +252,7 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
                             enabled = current.isConnected,
                             onClick = { showKeypad = !showKeypad }
                         )
-                        // Show a richer audio-route picker when there's more than
-                        // earpiece+speaker (e.g. Bluetooth or wired headset).
+
                         if (current.availableRoutes.size > 2) {
                             ToggleControl(
                                 active = current.audioRoute !is AudioRoute.Earpiece,
@@ -326,7 +323,6 @@ fun InCallScreen(viewModel: InCallViewModel = viewModel()) {
     }
 }
 
-/** Tappable chip showing the other (parked) call leg; tap to swap to it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HeldCallChip(title: String, onSwap: () -> Unit) {
@@ -364,7 +360,6 @@ private fun HeldCallChip(title: String, onSwap: () -> Unit) {
     }
 }
 
-/** Dialer shown while adding a second party; the first call stays on hold. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddCallContent(
@@ -386,7 +381,7 @@ private fun AddCallContent(
                 Spacer(Modifier.weight(1f))
                 Text("Add call", fontSize = 18.sp.scaled, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Spacer(Modifier.size(48.dp)) // balance the close button
+                Spacer(Modifier.size(48.dp))
             }
 
             if (heldTitle != null) {
@@ -412,8 +407,6 @@ private fun AddCallContent(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Pad takes the leftover (bounded) height so the call button below
-            // is always visible, even on short screens.
             DialPad(
                 onKeyClick = { number += it },
                 onZeroLongPress = { number = number.dropLast(1) + "+" },
@@ -458,11 +451,6 @@ private fun AddCallContent(
     }
 }
 
-/**
- * Dialer shown while blind-transferring the current party. The call stays up
- * until a destination is picked; on confirm the remote party is redirected and
- * our leg drops.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransferCallContent(
@@ -484,7 +472,7 @@ private fun TransferCallContent(
                 Spacer(Modifier.weight(1f))
                 Text("Transfer call", fontSize = 18.sp.scaled, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                Spacer(Modifier.size(48.dp)) // balance the close button
+                Spacer(Modifier.size(48.dp))
             }
 
             Spacer(Modifier.height(8.dp))
@@ -510,8 +498,6 @@ private fun TransferCallContent(
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Pad takes the leftover (bounded) height so the transfer button
-            // below is always visible, even on short screens.
             DialPad(
                 onKeyClick = { number += it },
                 onZeroLongPress = { number = number.dropLast(1) + "+" },
@@ -593,16 +579,9 @@ private fun ConnectionBanner(call: CallUiState, onReconnect: () -> Unit) {
     }
 }
 
-/**
- * Transient banner announcing how media is flowing: it pops for a few seconds
- * whenever the path first resolves or flips between a direct connection and the
- * TURN relay (the lazy fallback). The persistent state still lives in
- * [QualityRow]; this is just the "heads-up" the user asked for on each change.
- */
 @Composable
 private fun MediaPathBanner(path: MediaPath) {
-    // The last *known* path we announced. Stays put across the brief Unknown
-    // blips so we don't re-announce the same path, and only fire on a real flip.
+
     var announced by remember { mutableStateOf(MediaPath.Unknown) }
     var visible by remember { mutableStateOf(false) }
 

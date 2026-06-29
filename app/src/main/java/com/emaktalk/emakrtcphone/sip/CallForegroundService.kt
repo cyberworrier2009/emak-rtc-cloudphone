@@ -14,41 +14,19 @@ import androidx.core.app.NotificationCompat
 import com.emaktalk.emakrtcphone.MainActivity
 import com.emaktalk.emakrtcphone.R
 
-/**
- * Keeps the process alive (and the mic + WebRTC RTP socket + Verto WebSocket
- * attached) while a call is up. Android will otherwise freeze the app within
- * ~5s of going to background.
- */
 class CallForegroundService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ensureChannel()
+        ensureChannels()
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Call in progress"
+        val incoming = intent?.getBooleanExtra(EXTRA_INCOMING, false) ?: false
 
-        val openAppIntent = Intent(this, MainActivity::class.java)
-        openAppIntent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        val pi = PendingIntent.getActivity(
-            this, 0, openAppIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText("Tap to return to the call")
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
+        val notification = if (incoming) buildIncomingNotification(title) else buildOngoingNotification(title)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Microphone-only type. phoneCall type would require either
-            // MANAGE_OWN_CALLS perm + ConnectionService integration or the
-            // default-dialer role — both bigger projects. Microphone is
-            // enough to keep the WebRTC/Verto path alive when backgrounded.
+
             startForeground(
                 NOTIFICATION_ID,
                 notification,
@@ -60,26 +38,104 @@ class CallForegroundService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun ensureChannel() {
+    private fun openAppIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java)
+            .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        return PendingIntent.getActivity(
+            this, REQ_OPEN, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun buildOngoingNotification(title: String): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText("Tap to return to the call")
+            .setContentIntent(openAppIntent())
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+    private fun buildIncomingNotification(title: String): Notification {
+
+        val answerIntent = Intent(this, MainActivity::class.java)
+            .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(MainActivity.EXTRA_CALL_ACTION, MainActivity.ACTION_ANSWER)
+        val answerPi = PendingIntent.getActivity(
+            this, REQ_ANSWER, answerIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val declinePi = PendingIntent.getBroadcast(
+            this, REQ_DECLINE,
+            Intent(this, CallActionReceiver::class.java).setAction(CallActionReceiver.ACTION_DECLINE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val fullScreen = openAppIntent()
+
+        return NotificationCompat.Builder(this, INCOMING_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText("Incoming call")
+            .setContentIntent(fullScreen)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+
+            .setFullScreenIntent(fullScreen, true)
+            .addAction(0, "Decline", declinePi)
+            .addAction(0, "Answer", answerPi)
+            .build()
+    }
+
+    private fun ensureChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (nm.getNotificationChannel(CHANNEL_ID) != null) return
-        nm.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Active calls",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply { setShowBadge(false) }
-        )
+        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Active calls",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply { setShowBadge(false) }
+            )
+        }
+        if (nm.getNotificationChannel(INCOMING_CHANNEL_ID) == null) {
+
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    INCOMING_CHANNEL_ID,
+                    "Incoming calls",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            )
+        }
     }
 
     companion object {
         private const val CHANNEL_ID = "active_calls"
+        private const val INCOMING_CHANNEL_ID = "incoming_calls"
         private const val NOTIFICATION_ID = 0xCA11
         private const val EXTRA_TITLE = "title"
+        private const val EXTRA_INCOMING = "incoming"
 
-        fun start(context: Context, title: String) {
-            val intent = Intent(context, CallForegroundService::class.java).putExtra(EXTRA_TITLE, title)
+        private const val REQ_OPEN = 1
+        private const val REQ_ANSWER = 2
+        private const val REQ_DECLINE = 3
+
+        fun start(context: Context, title: String) = launch(context, title, incoming = false)
+
+        fun startIncoming(context: Context, title: String) = launch(context, title, incoming = true)
+
+        private fun launch(context: Context, title: String, incoming: Boolean) {
+            val intent = Intent(context, CallForegroundService::class.java)
+                .putExtra(EXTRA_TITLE, title)
+                .putExtra(EXTRA_INCOMING, incoming)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

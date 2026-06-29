@@ -16,7 +16,6 @@ class InCallViewModel : ViewModel() {
     fun sendDtmf(digit: Char) = SipCoreManager.sendDtmf(digit)
     fun forceReconnect() = SipCoreManager.forceReconnect()
 
-    // Multi-call / conference
     fun holdCall() = SipCoreManager.holdCall()
     fun resumeCall() = SipCoreManager.resumeCall()
     fun addCall() = SipCoreManager.addCall()
@@ -25,7 +24,6 @@ class InCallViewModel : ViewModel() {
     fun swapCalls() = SipCoreManager.swapCalls()
     fun mergeCalls() = SipCoreManager.mergeCalls()
 
-    // Blind transfer
     fun beginTransfer() = SipCoreManager.beginTransfer()
     fun cancelTransfer() = SipCoreManager.cancelTransfer()
     fun completeBlindTransfer(number: String) = SipCoreManager.completeBlindTransfer(number)

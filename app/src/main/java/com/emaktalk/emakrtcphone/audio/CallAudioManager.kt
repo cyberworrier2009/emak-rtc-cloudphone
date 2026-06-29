@@ -23,24 +23,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Owns Android's audio plumbing for an active call: communication audio mode,
- * audio focus, wired-headset detection, and the Bluetooth HFP SCO lifecycle.
- *
- * Unlike the reference project (where Linphone's `Core.pickAudioDevice` chose
- * the device), WebRTC's audio device module simply follows the platform
- * routing. So this class only manipulates [AudioManager] — speakerphone on/off
- * and Bluetooth SCO — and WebRTC plays/records through whatever the OS routes.
- * The platform AEC/NS are requested directly on the WebRTC audio module
- * (see [com.emaktalk.emakrtcphone.webrtc.WebRtcEngine]).
- */
 class CallAudioManager(private val context: Context) {
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private val routePrefs = RoutePreferences(context)
 
-    // Stored so we can restore the system audio mode after the call ends.
     private var savedAudioMode = AudioManager.MODE_NORMAL
     private var savedSpeakerphoneOn = false
     private var focusRequest: AudioFocusRequest? = null
@@ -51,7 +39,6 @@ class CallAudioManager(private val context: Context) {
     private val _currentRoute = MutableStateFlow<AudioRoute>(AudioRoute.Earpiece)
     val currentRoute: StateFlow<AudioRoute> = _currentRoute.asStateFlow()
 
-    // Bluetooth HFP profile state -------------------------------------------
     private var bluetoothHeadset: BluetoothHeadset? = null
     private var connectedBtDevice: BluetoothDevice? = null
     private var connectedA2dpDevice: BluetoothDevice? = null
@@ -108,23 +95,16 @@ class CallAudioManager(private val context: Context) {
         }
     }
 
-    // Wired headset / general device hot-plug --------------------------------
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = refreshAvailableRoutes()
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = refreshAvailableRoutes()
     }
 
-    /**
-     * Start the in-call audio session: switch to communication mode, grab audio
-     * focus, and register hot-plug listeners.
-     */
     @SuppressLint("MissingPermission")
     fun beginCall() {
         savedAudioMode = audioManager.mode
         savedSpeakerphoneOn = audioManager.isSpeakerphoneOn
 
-        // VoIP profile: enables the platform's AEC/NS path, routes through the
-        // earpiece by default, and ducks other media.
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
         requestAudioFocus()
@@ -132,11 +112,10 @@ class CallAudioManager(private val context: Context) {
         registerDeviceListeners()
         connectBluetoothProfile()
         refreshAvailableRoutes()
-        // Default to earpiece at the start of every call.
+
         applyRoute(_currentRoute.value)
     }
 
-    /** Tear down the audio session and restore prior system state. */
     fun endCall() {
         stopScoIfActive()
         unregisterDeviceListeners()
@@ -144,14 +123,12 @@ class CallAudioManager(private val context: Context) {
 
         abandonAudioFocus()
 
-        // Restore — don't yank the mode out from under any other VoIP app.
         audioManager.mode = savedAudioMode
         audioManager.isSpeakerphoneOn = savedSpeakerphoneOn
 
         _currentRoute.value = AudioRoute.Earpiece
     }
 
-    /** Pick an output device; WebRTC's ADM will follow the platform routing. */
     fun setRoute(route: AudioRoute) {
         _currentRoute.value = route
         applyRoute(route)
@@ -179,8 +156,6 @@ class CallAudioManager(private val context: Context) {
             }
         }
     }
-
-    // region Bluetooth lifecycle
 
     @SuppressLint("MissingPermission")
     private fun connectBluetoothProfile() {
@@ -232,8 +207,6 @@ class CallAudioManager(private val context: Context) {
         scoActive = false
     }
 
-    // endregion
-
     private fun registerDeviceListeners() {
         audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler)
     }
@@ -275,7 +248,6 @@ class CallAudioManager(private val context: Context) {
             }
         }
 
-        // If the current route disappeared (e.g. headset unplugged), fall back.
         if (_currentRoute.value !in routes) {
             val fallback = if (hasWired) AudioRoute.WiredHeadset else AudioRoute.Earpiece
             setRoute(fallback)
@@ -291,7 +263,7 @@ class CallAudioManager(private val context: Context) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(attrs)
                 .setAcceptsDelayedFocusGain(false)
-                .setOnAudioFocusChangeListener { /* handled implicitly by communication mode */ }
+                .setOnAudioFocusChangeListener {  }
                 .build()
             focusRequest = req
             audioManager.requestAudioFocus(req)
@@ -317,11 +289,7 @@ class CallAudioManager(private val context: Context) {
 
     companion object {
         private const val TAG = "CallAudioManager"
-        /**
-         * BluetoothProfile.LE_AUDIO. Resolved at runtime so we can compile
-         * against API 24; available on Android 13+, getProfileProxy() returns
-         * false on older devices.
-         */
+
         private const val LE_AUDIO_PROFILE = 22
     }
 }

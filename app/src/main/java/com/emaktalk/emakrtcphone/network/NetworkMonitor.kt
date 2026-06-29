@@ -12,11 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * Network type, surfaced to the UI and used by [com.emaktalk.emakrtcphone.sip.SipCoreManager]
- * to decide whether a handoff happened (which requires reconnecting the Verto
- * WebSocket and re-negotiating media).
- */
 enum class NetworkType { NONE, WIFI, CELLULAR, ETHERNET, OTHER }
 
 data class NetworkSnapshot(
@@ -29,17 +24,6 @@ data class NetworkSnapshot(
     }
 }
 
-/**
- * Watches the OS-level active network and notifies a single listener when:
- *
- *  - The phone goes online or offline ([onAvailable] / [onLost]).
- *  - The user moves between two distinct networks (e.g. WiFi -> LTE). We detect
- *    this by tracking the network's [Network.getNetworkHandle], which is stable
- *    per OS network instance.
- *
- * Designed for one consumer (the SIP layer). Start once at app launch, stop on
- * teardown.
- */
 class NetworkMonitor(private val context: Context) {
 
     fun interface Listener {

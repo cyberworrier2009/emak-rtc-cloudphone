@@ -35,11 +35,6 @@ import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.auth.AuthManager
 import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 
-/**
- * Shown after login when the account's token carries more than one enabled
- * extension: the user picks which line to sign in with. Selecting one registers
- * that extension and advances to the dialer (driven by [AuthManager] state).
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExtensionSelectScreen() {
@@ -50,7 +45,7 @@ fun ExtensionSelectScreen() {
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
-            // Centre the picker and keep it a readable width on tablets.
+
             contentAlignment = Alignment.TopCenter
         ) {
         Column(

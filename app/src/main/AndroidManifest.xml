@@ -17,6 +17,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Full-screen incoming-call alert over the lock screen. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-feature
         android:name="android.hardware.microphone"
@@ -62,6 +65,11 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Decline action on the incoming-call notification. -->
+        <receiver
+            android:name=".sip.CallActionReceiver"
+            android:exported="false" />
 
         <!-- FCM push wakeup. Real INVITE delivery requires a Firebase project
              (drop the real google-services.json into app/) and a FreeSWITCH-side

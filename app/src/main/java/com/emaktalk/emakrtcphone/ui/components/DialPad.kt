@@ -25,7 +25,6 @@ import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 import com.emaktalk.emakrtcphone.ui.theme.DialerMuted
 import com.emaktalk.emakrtcphone.ui.theme.DialerOnSurface
 
-/** A single dialpad key (the primary digit plus the letters underneath it). */
 private data class DialKey(val digit: Char, val letters: String)
 
 private val DIAL_KEYS = listOf(
@@ -47,23 +46,10 @@ private const val COLS = 3
 private const val ROWS = 4
 private val ROW_SPACING = 6.dp
 
-/** Upper bound on a key so the pad doesn't balloon on tablets / tall screens. */
 private val MAX_KEY = 84.dp
-/** Preferred lower bound for tappability when height is unbounded. */
+
 private val MIN_KEY = 44.dp
 
-/**
- * Classic 4x3 softphone keypad.
- *
- * Keys are sized to the largest square that fits the *available* space — width
- * AND height — so the pad shrinks to leave room for the number display and call
- * button on short screens, and is capped so it doesn't grow huge on big ones.
- * Give it a bounded height (e.g. `Modifier.weight(1f)` inside a Column) to let
- * it flex; with unbounded height it falls back to a width-derived size.
- *
- * @param onKeyClick invoked with the pressed character ('0'-'9', '*', '#').
- * @param onZeroLongPress invoked when '0' is long-pressed (inserts '+').
- */
 @Composable
 fun DialPad(
     onKeyClick: (Char) -> Unit,
@@ -80,13 +66,11 @@ fun DialPad(
     ) {
         val byWidth = maxWidth / COLS
         val keySize = if (constraints.hasBoundedHeight) {
-            // Fit all four rows within the slot we were given — never overflow it,
-            // so the call/transfer button below always stays visible.
+
             val byHeight = (maxHeight - ROW_SPACING * (ROWS - 1)) / ROWS
             minOf(byWidth, byHeight, MAX_KEY)
         } else {
-            // Unbounded height (e.g. inside a scroll/animated container): derive
-            // from width, but keep keys comfortably tappable.
+
             minOf(byWidth, MAX_KEY).coerceAtLeast(MIN_KEY)
         }
 
@@ -125,9 +109,7 @@ private fun DialButton(
     digitColor: Color,
     letterColor: Color
 ) {
-    // Borderless keys: just the digit and letters floating on the dark canvas,
-    // with a circular ripple bound to the touch target. Type is derived from the
-    // key size so it stays proportional as the pad flexes.
+
     Box(
         modifier = Modifier
             .size(size)

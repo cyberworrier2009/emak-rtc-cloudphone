@@ -2,33 +2,16 @@ package com.emaktalk.emakrtcphone.sip
 
 import android.content.Context
 
-/** A saved Verto account, persisted so the user stays signed in across restarts. */
 data class SavedAccount(
     val username: String,
     val password: String,
-    /** SIP domain used in the Verto login id (`username@domain`). */
+
     val domain: String,
     val transport: VertoTransport,
-    /**
-     * Host the Verto WebSocket connects to. Often the same as [domain], but the
-     * SIP domain (an `accountcode`) and the signaling host can differ — so it is
-     * stored separately. Defaults to [domain] for accounts saved before this
-     * field existed.
-     */
+
     val host: String = domain
 )
 
-/**
- * Persists the Verto login so the user remains "logged in" until they explicitly
- * sign out — even after the app is force-closed or the device reboots. On the
- * next launch [SipCoreManager] reads it back and re-opens the WebSocket
- * automatically.
- *
- * NOTE: this uses plain [android.content.SharedPreferences], so the password is
- * stored in the app's private (but unencrypted) prefs. For a production build,
- * back this with EncryptedSharedPreferences (androidx.security:security-crypto)
- * or the Android Keystore.
- */
 class AccountStore(context: Context) {
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

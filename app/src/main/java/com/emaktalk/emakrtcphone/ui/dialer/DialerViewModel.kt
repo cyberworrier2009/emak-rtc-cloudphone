@@ -23,7 +23,7 @@ class DialerViewModel : ViewModel() {
     }
 
     fun onZeroLongPress() {
-        // Replace a trailing '0' (just typed by the click) with '+'.
+
         _number.value = _number.value.dropLast(1) + "+"
     }
 

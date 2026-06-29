@@ -36,12 +36,6 @@ import com.emaktalk.emakrtcphone.R
 import com.emaktalk.emakrtcphone.auth.AuthManager
 import com.emaktalk.emakrtcphone.ui.responsive.maxContentWidth
 
-/**
- * App entry gate: the user must sign in here before reaching the dialer. On a
- * successful login [AuthManager] persists the tokens and flips its state, which
- * the navigation graph observes to move on to the app — this screen does not
- * navigate itself.
- */
 @Composable
 fun LoginScreen(
     viewModel: LoginViewModel = viewModel()
@@ -59,7 +53,7 @@ fun LoginScreen(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize(),
-            // Keep the form a comfortable reading width and centred on tablets.
+
             contentAlignment = Alignment.Center
         ) {
         Column(

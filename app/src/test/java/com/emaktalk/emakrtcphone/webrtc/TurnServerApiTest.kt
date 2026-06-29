@@ -5,15 +5,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Parsing tests for [TurnServerApi.parseIceServers], driven by the exact
- * response shape the backend returns for `/chat_app/turn_server`.
- */
 class TurnServerApiTest {
 
     private val api = TurnServerApi()
 
-    /** The real sample payload from the Cloudflare-backed endpoint. */
     private val sample = """
         {
           "iceServers": [
@@ -43,12 +38,11 @@ class TurnServerApiTest {
     fun parsesStunAndTurnServers() {
         val servers = api.parseIceServers(sample)
 
-        // Two ICE server entries: a STUN block and a credentialed TURN block.
         assertEquals(2, servers.size)
 
         val stun = servers[0]
         assertEquals(listOf("stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"), stun.urls)
-        // STUN has no credentials.
+
         assertTrue(stun.username.isNullOrEmpty())
 
         val turn = servers[1]

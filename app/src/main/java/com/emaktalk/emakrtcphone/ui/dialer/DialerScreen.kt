@@ -83,7 +83,6 @@ fun DialerScreen(
     val callError by viewModel.callError.collectAsState()
     val context = LocalContext.current
 
-    // Surface call failures (e.g. "Already in a call") as a toast.
     LaunchedEffect(callError) {
         callError?.let {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
@@ -91,7 +90,6 @@ fun DialerScreen(
         }
     }
 
-    // A call needs the microphone; request it on demand if not yet granted.
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -125,7 +123,7 @@ fun DialerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            // Centre the content so it doesn't stretch edge-to-edge on tablets.
+
             contentAlignment = Alignment.TopCenter
         ) {
         Column(
@@ -167,9 +165,6 @@ fun DialerScreen(
                 )
             }
 
-            // weight(1f) gives the pad the leftover height (bounded), so it
-            // shrinks its keys to fit instead of pushing the call button off the
-            // bottom on short screens.
             DialPad(
                 onKeyClick = viewModel::onKeyPress,
                 onZeroLongPress = viewModel::onZeroLongPress,
@@ -195,7 +190,6 @@ fun DialerScreen(
     }
 }
 
-/** Top row: brand logo (carrying the registration status) on the left, search on the right. */
 @Composable
 private fun DialerHeader(registration: RegistrationState) {
     Row(
@@ -206,7 +200,7 @@ private fun DialerHeader(registration: RegistrationState) {
     ) {
         BrandLogo(registration = registration)
         Spacer(Modifier.weight(1f))
-        IconButton(onClick = { /* TODO: search across contacts & history */ }) {
+        IconButton(onClick = {  }) {
             Icon(
                 Icons.Filled.Search,
                 contentDescription = stringResource(R.string.search),
@@ -233,7 +227,7 @@ private fun BrandLogo(registration: RegistrationState) {
                 color = Color.White
             )
         }
-        // Registration status as a small dot on the logo corner.
+
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -273,7 +267,6 @@ private fun NumberDisplay(number: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Translucent pill showing the contact that matches the typed number. */
 @Composable
 private fun ContactSuggestionChip(suggestion: ContactSuggestion, modifier: Modifier = Modifier) {
     Surface(
@@ -323,7 +316,7 @@ private fun CallActionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Add the dialed number as a new contact.
+
         Box(modifier = Modifier.size(64.dp.scaled), contentAlignment = Alignment.Center) {
             IconButton(onClick = onAddContact) {
                 Icon(
@@ -354,7 +347,7 @@ private fun CallActionRow(
 
         Box(modifier = Modifier.size(64.dp.scaled), contentAlignment = Alignment.Center) {
             if (showBackspace) {
-                // Tap deletes one digit, long-press clears the whole number.
+
                 Box(
                     modifier = Modifier
                         .size(56.dp.scaled)
@@ -376,7 +369,6 @@ private fun CallActionRow(
     }
 }
 
-/** A bottom-nav tab. Dial is the current screen; Settings opens the SIP account. */
 private data class NavTab(
     val labelRes: Int,
     val icon: ImageVector
@@ -403,7 +395,7 @@ private fun DialerBottomBar(onOpenSettings: () -> Unit) {
                     when {
                         isSettings -> onOpenSettings()
                         isDial -> Unit
-                        // Recents / People / Voicemail are not built yet.
+
                         else -> Toast.makeText(
                             context,
                             "${context.getString(tab.labelRes)} coming soon",

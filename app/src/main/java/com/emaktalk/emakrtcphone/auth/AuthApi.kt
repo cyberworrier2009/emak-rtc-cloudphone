@@ -10,28 +10,12 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/**
- * Talks to the Emak auth backend. The only call today is [login], which posts
- * the username/password to `/api/v1/auth/login` and, on success, parses the
- * `{ access_token, refresh_token, token_type, expires_in, refresh_expires_in }`
- * response into [AuthTokens].
- *
- * Uses the same OkHttp stack the Verto signaling already depends on, and parses
- * with [org.json.JSONObject] (built into Android) so no JSON library is added.
- */
 class AuthApi(
     private val loginUrl: String = DEFAULT_LOGIN_URL,
     private val refreshUrl: String = DEFAULT_REFRESH_URL,
     private val client: OkHttpClient = defaultClient
 ) {
 
-    /**
-     * Authenticates [username]/[password] against the backend.
-     *
-     * @return [Result.success] with the parsed [AuthTokens] on HTTP 2xx, or
-     *   [Result.failure] carrying a user-presentable message otherwise (bad
-     *   credentials, server error, no network, malformed response).
-     */
     suspend fun login(username: String, password: String): Result<AuthTokens> =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -57,14 +41,6 @@ class AuthApi(
             }
         }
 
-    /**
-     * Exchanges a still-valid [refreshToken] for a fresh access token (and a
-     * rotated refresh token — the backend returns a new one each time, so the
-     * caller must persist what comes back). Same response shape as [login].
-     *
-     * @return [Result.success] with the new [AuthTokens] on HTTP 2xx, or
-     *   [Result.failure] (e.g. the refresh token itself expired → re-login).
-     */
     suspend fun refresh(refreshToken: String): Result<AuthTokens> =
         withContext(Dispatchers.IO) {
             runCatching {
@@ -105,7 +81,6 @@ class AuthApi(
         )
     }
 
-    /** Pulls a human-readable error out of the response body, falling back to the status code. */
     private fun errorMessage(body: String, code: Int): String {
         val fromJson = runCatching {
             val json = JSONObject(body)

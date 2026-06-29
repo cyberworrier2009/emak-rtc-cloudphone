@@ -11,11 +11,6 @@ import android.view.KeyEvent
 import androidx.annotation.RequiresApi
 import com.emaktalk.emakrtcphone.sip.SipCoreManager
 
-/**
- * Receives MEDIA_BUTTON intents from wired/Bluetooth headsets (a single click
- * answers or hangs up). Registered dynamically while a call is active by
- * [MediaButtonHandle], which owns a [MediaSession] tied to this receiver.
- */
 class MediaButtonReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_MEDIA_BUTTON) return
@@ -38,11 +33,6 @@ class MediaButtonReceiver : BroadcastReceiver() {
     companion object { private const val TAG = "MediaButtonReceiver" }
 }
 
-/**
- * Lifecycle owner for the per-call media session. Keep one instance attached
- * to the active call; release it when the call ends so we don't sit on the
- * media button focus forever.
- */
 class MediaButtonHandle(private val context: Context) {
 
     private var session: MediaSession? = null
@@ -71,7 +61,7 @@ class MediaButtonHandle(private val context: Context) {
                 return super.onMediaButtonEvent(intent)
             }
         })
-        // Mark the session as active "playing" so it wins the media button route.
+
         s.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY_PAUSE)

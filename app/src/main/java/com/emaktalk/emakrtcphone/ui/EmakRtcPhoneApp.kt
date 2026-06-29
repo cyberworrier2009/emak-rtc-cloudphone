@@ -33,12 +33,8 @@ fun EmakRtcPhoneApp() {
     val callState by SipCoreManager.callState.collectAsState()
     val hasActiveCall = callState != null
 
-    // The user must sign in before reaching the dialer. We pick the start
-    // destination from the session restored at launch (so a signed-in user
-    // doesn't flash the login screen) and react to later sign-in/out below.
     val startDestination = if (AuthManager.isLoggedIn) Routes.DIALER else Routes.LOGIN
 
-    // Move between the login gate and the app whenever auth state changes.
     LaunchedEffect(authState) {
         when (authState) {
             AuthManager.State.SelectingExtension -> {
@@ -48,14 +44,14 @@ fun EmakRtcPhoneApp() {
             }
             AuthManager.State.LoggedIn -> {
                 navController.navigate(Routes.DIALER) {
-                    // Clear the login + extension-picker so Back can't return to them.
+
                     popUpTo(Routes.LOGIN) { inclusive = true }
                     launchSingleTop = true
                 }
             }
             AuthManager.State.LoggedOut -> {
                 navController.navigate(Routes.LOGIN) {
-                    // Drop the whole back stack so Back can't return into the app.
+
                     popUpTo(0) { inclusive = true }
                     launchSingleTop = true
                 }
@@ -64,8 +60,6 @@ fun EmakRtcPhoneApp() {
         }
     }
 
-    // Drive call screen navigation from the core's call state so that both
-    // outgoing and incoming calls surface the in-call UI automatically.
     LaunchedEffect(hasActiveCall) {
         if (hasActiveCall) {
             navController.navigate(Routes.IN_CALL) {

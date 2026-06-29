@@ -21,34 +21,17 @@ import org.webrtc.SessionDescription
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/**
- * Wraps a single call's WebRTC [PeerConnection]: the local mic track, the
- * SDP offer/answer dance, ICE gathering, DTMF and live stats.
- *
- * Verto (like classic SIP) expects a *complete* SDP — it does not trickle ICE —
- * so [createOffer] / [createAnswer] deliberately block on ICE gathering before
- * returning the SDP that [com.emaktalk.emakrtcphone.verto.VertoClient] should send.
- */
 class WebRtcSession(
     val callId: String,
     private val factory: PeerConnectionFactory,
     iceServers: List<PeerConnection.IceServer>,
     private val events: Events,
-    /**
-     * Test hook: when true, ICE gathers ONLY relay candidates so media is forced
-     * over the TURN server (no direct/STUN path can win). Requires [iceServers]
-     * to actually contain TURN entries, else there are no candidates at all.
-     * Wired from [com.emaktalk.emakrtcphone.sip.SipCoreManager]'s FORCE_RELAY flag.
-     */
+
     private val forceRelay: Boolean = false
 ) {
 
-    /** Lifecycle callbacks surfaced to [com.emaktalk.emakrtcphone.sip.SipCoreManager]. */
     interface Events {
-        /**
-         * PeerConnection transport state changed (CONNECTED, FAILED, ...). [callId]
-         * identifies which session/leg fired, so a multi-leg manager can route it.
-         */
+
         fun onConnectionState(callId: String, state: PeerConnection.PeerConnectionState)
     }
 
@@ -75,12 +58,10 @@ class WebRtcSession(
             events.onConnectionState(callId, newState)
         }
 
-        override fun onIceCandidate(candidate: IceCandidate?) { /* non-trickle: bundled into SDP */ }
+        override fun onIceCandidate(candidate: IceCandidate?) {  }
         override fun onSignalingChange(p0: PeerConnection.SignalingState?) {}
         override fun onIceConnectionChange(state: PeerConnection.IceConnectionState?) {
-            // Useful when diagnosing a stuck/Reconnecting call: this tells you
-            // exactly where ICE dies (CHECKING -> FAILED means no candidate pair
-            // reached FreeSWITCH; CONNECTED -> DISCONNECTED means a transient drop).
+
             Log.i(TAG, "[$callId] ICE connection -> $state")
         }
         override fun onIceConnectionReceivingChange(p0: Boolean) {}
@@ -90,9 +71,7 @@ class WebRtcSession(
         override fun onDataChannel(p0: DataChannel?) {}
         override fun onRenegotiationNeeded() {}
         override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
-            // Remote audio from FreeSWITCH. Native Android WebRTC renders it
-            // through the audio device module automatically; we just make sure
-            // the track is enabled and log it so we can confirm downstream media.
+
             val track = receiver?.track()
             if (track is AudioTrack) {
                 track.setEnabled(true)
@@ -105,25 +84,15 @@ class WebRtcSession(
     init {
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            // ALL (not RELAY): gather host + server-reflexive (STUN) + relay (TURN)
-            // candidates and let ICE pick by priority. Direct/STUN paths win when
-            // they work; the TURN relay is only used when no direct path can be
-            // established — i.e. TURN is the fallback, not the default route.
-            // RELAY only when [forceRelay] is set, to deterministically test the
-            // TURN path (otherwise the direct path always wins on a good network).
+
             iceTransportsType = if (forceRelay) {
                 PeerConnection.IceTransportsType.RELAY
             } else {
                 PeerConnection.IceTransportsType.ALL
             }
-            // Gather all candidates up front; we send a full SDP (no trickle).
+
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
-            // MAX_COMPAT, not MAX_BUNDLE: mod_verto's answer SDP does not echo an
-            // "a=group:BUNDLE" line, and under MAX_BUNDLE WebRTC then rejects the
-            // whole answer with "cannot remove m= section ... from already-
-            // established BUNDLE group" — so the remote description never applies
-            // and there is no media at all. MAX_COMPAT tolerates a bundle-less
-            // answer (fine for a single audio m-line).
+
             bundlePolicy = PeerConnection.BundlePolicy.MAXCOMPAT
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
         }
@@ -132,9 +101,7 @@ class WebRtcSession(
     }
 
     private fun addLocalAudio() {
-        // Empty constraints: let WebRTC's APM use its defaults and the hardware
-        // AEC/NS configured on the JavaAudioDeviceModule. Passing goog* keys as
-        // mandatory can be rejected on some builds and silently kill capture.
+
         val source = factory.createAudioSource(MediaConstraints())
         val track = factory.createAudioTrack("audio_$callId", source)
         track.setEnabled(true)
@@ -142,17 +109,11 @@ class WebRtcSession(
         audioSource = source
         localAudioTrack = track
 
-        // Force the audio transceiver to send AND receive. addTrack defaults to
-        // SEND_RECV under Unified Plan, but being explicit guards against a
-        // send-only m-line (a classic "I can't hear them" cause).
         peerConnection?.transceivers?.firstOrNull {
             it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO
         }?.direction = RtpTransceiver.RtpTransceiverDirection.SEND_RECV
     }
 
-    // region SDP --------------------------------------------------------------
-
-    /** Builds our offer, sets it locally, and returns the ICE-complete SDP. */
     suspend fun createOffer(): String {
         val offer = callSdp { obs -> peerConnection?.createOffer(obs, offerConstraints()) }
         setLocal(offer)
@@ -161,10 +122,6 @@ class WebRtcSession(
         return full
     }
 
-    /**
-     * Applies the remote offer, builds our answer, and returns the ICE-complete
-     * answer SDP. Used for incoming calls.
-     */
     suspend fun createAnswer(remoteOffer: String): String {
         logSdp("remote OFFER", remoteOffer)
         setRemote(SessionDescription(SessionDescription.Type.OFFER, remoteOffer))
@@ -175,13 +132,11 @@ class WebRtcSession(
         return full
     }
 
-    /** Applies a remote answer to our outgoing offer (verto.media / verto.answer). */
     suspend fun setRemoteAnswer(sdp: String) {
         logSdp("remote ANSWER", sdp)
         setRemote(SessionDescription(SessionDescription.Type.ANSWER, sdp))
     }
 
-    /** Logs the audio m-line/direction/codecs and candidate count for diagnosis. */
     private fun logSdp(label: String, sdp: String) {
         val lines = sdp.lines()
         val direction = lines.firstOrNull {
@@ -194,8 +149,7 @@ class WebRtcSession(
     }
 
     private suspend fun awaitFullLocalSdp(fallback: SessionDescription): String {
-        // Block (briefly) until ICE gathering finishes so the SDP we hand to
-        // Verto carries every candidate. FreeSWITCH won't trickle for us.
+
         withTimeoutOrNull(ICE_GATHERING_TIMEOUT_MS) { iceGatheringComplete.await() }
         return peerConnection?.localDescription?.description ?: fallback.description
     }
@@ -234,33 +188,20 @@ class WebRtcSession(
             else peerConnection?.setRemoteDescription(obs, desc)
         }
 
-    // endregion
-
-    // region Controls ---------------------------------------------------------
-
-    /** Mutes/unmutes the local mic. Returns the new muted state. */
     fun setMuted(muted: Boolean) {
         localAudioTrack?.setEnabled(!muted)
     }
 
-    /**
-     * Locally pauses/resumes media for a held leg: stops sending our mic and
-     * silences the remote audio. FreeSWITCH also pauses the leg server-side via
-     * `verto.modify`; this is the immediate local effect. On resume the caller
-     * re-applies the mute state.
-     */
     fun setHold(onHold: Boolean) {
         localAudioTrack?.setEnabled(!onHold)
         remoteAudioTrack?.setEnabled(!onHold)
     }
 
-    /** Sends DTMF in-band over RTP (RFC 4733) as a backup to Verto's verto.info. */
     fun sendDtmf(digit: Char) {
         val sender = peerConnection?.senders?.firstOrNull { it.track()?.kind() == "audio" } ?: return
         sender.dtmf()?.insertDtmf(digit.toString(), 160, 70)
     }
 
-    /** Polls live media stats and folds them into a [CallQualityStats] via the E-model. */
     fun pollStats(onResult: (CallQualityStats) -> Unit) {
         val pc = peerConnection ?: return
         pc.getStats { report -> onResult(statsCalculator.consume(report)) }
@@ -276,13 +217,9 @@ class WebRtcSession(
         if (!iceGatheringComplete.isCompleted) iceGatheringComplete.cancel()
     }
 
-    // endregion
-
     companion object {
         private const val TAG = "WebRtcSession"
-        // Verto doesn't trickle, so the SDP we send must already carry every
-        // candidate. Give gathering enough headroom (srflx via STUN can take a
-        // beat) before we fall back to whatever we've got.
+
         private const val ICE_GATHERING_TIMEOUT_MS = 5000L
     }
 }
